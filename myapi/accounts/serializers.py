@@ -44,6 +44,11 @@ class LoginSerializer(serializers.Serializer):
         except User.DoesNotExist:
             raise serializers.ValidationError(_("Unable to log in with provided credentials."))
 
+        # If the user does not have a usable password yet, they must complete
+        # the initial setup flow before being allowed to log in.
+        if not user.has_usable_password():
+            raise serializers.ValidationError(_("Account requires initial setup before login."))
+
         if not user.check_password(password):
             raise serializers.ValidationError(_("Unable to log in with provided credentials."))
 
@@ -108,4 +113,32 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             "last_password_change_at",
             "last_password_change_reason",
         ]
+
+
+class RequestInitialSetupOTPSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        try:
+            user = User.objects.get(email=value)
+        except User.DoesNotExist:
+            raise serializers.ValidationError(_("User with this email does not exist."))
+
+        if user.has_usable_password() or user.is_active:
+            raise serializers.ValidationError(_("Account does not require initial setup."))
+
+        return value
+
+
+class ConfirmInitialSetupSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    otp = serializers.CharField(min_length=5, max_length=5)
+    password = serializers.CharField(write_only=True)
+    confirm_password = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        if attrs["password"] != attrs["confirm_password"]:
+            raise serializers.ValidationError({"confirm_password": _("Passwords do not match.")})
+        password_validation.validate_password(attrs["password"])
+        return attrs
 

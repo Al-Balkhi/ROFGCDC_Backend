@@ -13,10 +13,12 @@ from .serializers import (
     ActivationSerializer,
     ActivityLogSerializer,
     ChangePasswordSerializer,
+    ConfirmInitialSetupSerializer,
     LoginSerializer,
     PasswordResetConfirmSerializer,
     PasswordResetRequestSerializer,
     ProfileUpdateSerializer,
+    RequestInitialSetupOTPSerializer,
     UserSerializer,
 )
 from .services import OTPService, OTPServiceError
@@ -178,6 +180,74 @@ class PasswordResetConfirmView(APIView):
         user.last_password_change_reason = user.PasswordChangeReason.FORGOT
         user.save(update_fields=["password", "last_password_change_at", "last_password_change_reason"])
         return Response({"detail": "Password reset successful."})
+
+
+class InitialSetupRequestOTPView(APIView):
+    """
+    Request an OTP for initial password setup.
+    This is used when the user has no usable password and is not active.
+    """
+
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = RequestInitialSetupOTPSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        email = serializer.validated_data["email"]
+        user = User.objects.get(email=email)
+
+        try:
+            OTPService.issue(user, OneTimePassword.Purpose.INITIAL_SETUP)
+        except OTPServiceError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
+        return Response({"detail": "OTP sent for initial setup."})
+
+
+class InitialSetupConfirmView(APIView):
+    """
+    Confirm initial setup using OTP and set the user's password.
+    """
+
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = ConfirmInitialSetupSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        email = serializer.validated_data["email"]
+        otp_code = serializer.validated_data["otp"]
+        password = serializer.validated_data["password"]
+
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            OTPService.verify(
+                user,
+                OneTimePassword.Purpose.INITIAL_SETUP,
+                otp_code,
+            )
+        except OTPServiceError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(password)
+        user.is_active = True
+        user.last_password_change_at = timezone.now()
+        user.last_password_change_reason = user.PasswordChangeReason.INITIAL_SETUP
+        user.save(
+            update_fields=[
+                "password",
+                "is_active",
+                "last_password_change_at",
+                "last_password_change_reason",
+            ]
+        )
+
+        return Response({"detail": "Initial setup completed successfully."})
 
 
 class ProfileView(APIView):

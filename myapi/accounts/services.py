@@ -80,6 +80,9 @@ class EmailService:
         if purpose == OneTimePassword.Purpose.ACTIVATION:
             subject = "Activate your account"
             body = f"Your activation code is {code}. It expires in 5 minutes."
+        elif purpose == OneTimePassword.Purpose.INITIAL_SETUP:
+            subject = "Set up your account password"
+            body = f"Your initial setup code is {code}. It expires in 5 minutes."
         else:
             subject = "Reset your password"
             body = f"Your password reset code is {code}. It expires in 5 minutes."

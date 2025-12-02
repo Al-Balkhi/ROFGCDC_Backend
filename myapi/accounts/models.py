@@ -12,11 +12,35 @@ class UserManager(BaseUserManager):
         email = self.normalize_email(email)
         extra_fields.setdefault("username", email.split("@")[0])
         user = self.model(email=email, **extra_fields)
-        if password:
+
+        # Determine whether this user is being created with a real password
+        has_password = bool(password)
+        if has_password:
             user.set_password(password)
         else:
-            raise ValueError("Users must provide a password")
+            # Create user with an unusable password so they must complete initial setup.
+            user.set_unusable_password()
+
+        # For normal users, ensure they are inactive until they complete initial setup.
+        # (Superusers explicitly pass is_active=True via create_superuser.)
+        if "is_active" not in extra_fields:
+            user.is_active = False
+
         user.save(using=self._db)
+
+        # If the user was created without a password, automatically send an
+        # INITIAL_SETUP OTP to kick off onboarding. We reference OneTimePassword
+        # at runtime to avoid circular imports.
+        if not has_password:
+            try:
+                from .services import OTPService  # type: ignore
+
+                OTPService.issue(user, OneTimePassword.Purpose.INITIAL_SETUP)
+            except Exception:
+                # Swallow any OTP-related errors so user creation is not blocked.
+                # Logging can be added here if desired.
+                pass
+
         return user
 
     def create_superuser(self, email, password=None, **extra_fields):
@@ -41,6 +65,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     class PasswordChangeReason(models.TextChoices):
         FORGOT = "forgot", "Forgot"
         PROFILE = "profile", "Profile"
+        INITIAL_SETUP = "initial_setup", "Initial Setup"
 
     email = models.EmailField(unique=True)
     username = models.CharField(max_length=150)
@@ -56,7 +81,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     last_logout_at = models.DateTimeField(null=True, blank=True)
     last_password_change_at = models.DateTimeField(null=True, blank=True)
     last_password_change_reason = models.CharField(
-        max_length=10,
+        max_length=20,
         choices=PasswordChangeReason.choices,
         blank=True,
         null=True,
@@ -75,6 +100,7 @@ class OneTimePassword(models.Model):
     class Purpose(models.TextChoices):
         ACTIVATION = "activation", "Activation"
         PASSWORD_RESET = "password_reset", "Password Reset"
+        INITIAL_SETUP = "initial_setup", "Initial Setup"
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, related_name="otps", on_delete=models.CASCADE
