@@ -76,6 +76,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     )
     is_active = models.BooleanField(default=False)
     is_staff = models.BooleanField(default=False)
+    is_archived = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now)
     last_login_at = models.DateTimeField(null=True, blank=True)
     last_logout_at = models.DateTimeField(null=True, blank=True)
