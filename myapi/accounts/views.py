@@ -10,7 +10,6 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from .authentication import CookieJWTAuthentication
 from .models import OneTimePassword
 from .serializers import (
-    ActivationSerializer,
     ActivityLogSerializer,
     ChangePasswordSerializer,
     ConfirmInitialSetupSerializer,
@@ -53,16 +52,18 @@ class LoginView(APIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.validated_data["user"]
 
-        if not user.is_active:
-            try:
-                OTPService.issue(user, OneTimePassword.Purpose.ACTIVATION)
-            except OTPServiceError as exc:
-                return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        # Check if user has unusable password (requires initial setup)
+        if not user.has_usable_password():
             return Response(
-                {
-                    "detail": "Account not active. OTP sent to email for activation.",
-                },
-                status=status.HTTP_202_ACCEPTED,
+                {"detail": "Account requires initial setup before login."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Check if account is inactive
+        if not user.is_active:
+            return Response(
+                {"detail": "Account is inactive. Please contact an administrator."},
+                status=status.HTTP_403_FORBIDDEN,
             )
 
         refresh = RefreshToken.for_user(user)
@@ -112,33 +113,6 @@ class RefreshTokenView(APIView):
         response = Response({"detail": "Token refreshed."})
         _set_jwt_cookies(response, new_refresh)
         return response
-
-
-class ActivateAccountView(APIView):
-    permission_classes = [permissions.AllowAny]
-
-    def post(self, request):
-        serializer = ActivationSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        try:
-            user = User.objects.get(email=serializer.validated_data["email"])
-        except User.DoesNotExist:
-            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
-        if user.is_active:
-            return Response({"detail": "Account already active."})
-
-        try:
-            OTPService.verify(
-                user,
-                OneTimePassword.Purpose.ACTIVATION,
-                serializer.validated_data["otp"],
-            )
-        except OTPServiceError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-
-        user.is_active = True
-        user.save(update_fields=["is_active"])
-        return Response({"detail": "Account activated successfully."})
 
 
 class PasswordResetRequestView(APIView):
@@ -208,6 +182,7 @@ class InitialSetupRequestOTPView(APIView):
 class InitialSetupConfirmView(APIView):
     """
     Confirm initial setup using OTP and set the user's password.
+    This also activates the account (sets is_active=True).
     """
 
     permission_classes = [permissions.AllowAny]

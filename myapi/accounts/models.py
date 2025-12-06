@@ -99,7 +99,6 @@ class User(AbstractBaseUser, PermissionsMixin):
 
 class OneTimePassword(models.Model):
     class Purpose(models.TextChoices):
-        ACTIVATION = "activation", "Activation"
         PASSWORD_RESET = "password_reset", "Password Reset"
         INITIAL_SETUP = "initial_setup", "Initial Setup"
 

@@ -1,3 +1,4 @@
+import logging
 import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -7,6 +8,8 @@ from django.core.mail import send_mail
 from django.utils import timezone
 
 from .models import OneTimePassword, User
+
+logger = logging.getLogger(__name__)
 
 
 class OTPServiceError(Exception):
@@ -76,22 +79,31 @@ class OTPService:
 class EmailService:
     @staticmethod
     def send_otp_email(email: str, code: str, purpose: str) -> None:
-        subject = "Your verification code"
-        if purpose == OneTimePassword.Purpose.ACTIVATION:
-            subject = "Activate your account"
-            body = f"Your activation code is {code}. It expires in 5 minutes."
-        elif purpose == OneTimePassword.Purpose.INITIAL_SETUP:
+        if purpose == OneTimePassword.Purpose.INITIAL_SETUP:
             subject = "Set up your account password"
             body = f"Your initial setup code is {code}. It expires in 5 minutes."
-        else:
+        elif purpose == OneTimePassword.Purpose.PASSWORD_RESET:
             subject = "Reset your password"
             body = f"Your password reset code is {code}. It expires in 5 minutes."
+        else:
+            # Fallback for any unexpected purposes
+            subject = "Your verification code"
+            body = f"Your verification code is {code}. It expires in 5 minutes."
 
-        send_mail(
-            subject=subject,
-            message=body,
-            from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@example.com"),
-            recipient_list=[email],
-            fail_silently=False,
-        )
+        try:
+            send_mail(
+                subject=subject,
+                message=body,
+                from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@example.com"),
+                recipient_list=[email],
+                fail_silently=False,
+            )
+            logger.info(f"OTP email sent successfully to {email} for purpose: {purpose}")
+        except Exception as e:
+            logger.error(
+                f"Failed to send OTP email to {email} for purpose {purpose}. "
+                f"Error: {str(e)}. "
+                f"Check EMAIL_HOST_USER and EMAIL_HOST_PASSWORD in .env file."
+            )
+            raise
 

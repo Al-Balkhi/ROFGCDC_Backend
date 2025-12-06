@@ -8,8 +8,8 @@ __pycache__/
 *.so
 
 # Virtual environment
-myvenv/
-myvenv/*
+myenv/
+myenv/*
 
 # Django
 *.log

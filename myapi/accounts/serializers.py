@@ -56,11 +56,6 @@ class LoginSerializer(serializers.Serializer):
         return attrs
 
 
-class ActivationSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    otp = serializers.CharField(min_length=5, max_length=5)
-
-
 class PasswordResetRequestSerializer(serializers.Serializer):
     email = serializers.EmailField()
 

@@ -1,7 +1,6 @@
 from django.urls import path
 
 from .views import (
-    ActivateAccountView,
     ActivityLogView,
     ChangePasswordView,
     InitialSetupConfirmView,
@@ -18,7 +17,6 @@ urlpatterns = [
     path("auth/login/", LoginView.as_view(), name="auth-login"),
     path("auth/logout/", LogoutView.as_view(), name="auth-logout"),
     path("auth/refresh/", RefreshTokenView.as_view(), name="auth-refresh"),
-    path("auth/activate/", ActivateAccountView.as_view(), name="auth-activate"),
     path(
         "auth/initial-setup/request-otp/",
         InitialSetupRequestOTPView.as_view(),
