@@ -54,17 +54,11 @@ class LoginView(APIView):
 
         # Check if user has unusable password (requires initial setup)
         if not user.has_usable_password():
-            return Response(
-                {"detail": "Account requires initial setup before login."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+            return Response({"code": "initial_setup_required"}, status=status.HTTP_403_FORBIDDEN)
 
         # Check if account is inactive
         if not user.is_active:
-            return Response(
-                {"detail": "Account is inactive. Please contact an administrator."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+            return Response({"code": "inactive_account"}, status=status.HTTP_403_FORBIDDEN)
 
         refresh = RefreshToken.for_user(user)
         user.last_login_at = timezone.now()
@@ -259,6 +253,55 @@ class ActivityLogView(APIView):
     permission_classes = [permissions.IsAdminUser]
 
     def get(self, request):
-        queryset = User.objects.all().order_by("-last_login_at")
+        queryset = (
+            User.objects
+            .filter(is_staff=False)
+            .order_by("-last_login_at")
+        )
         data = ActivityLogSerializer(queryset, many=True).data
         return Response(data)
+
+
+class AdminStatsView(APIView):
+    """
+    Admin-only endpoint for dashboard statistics.
+    Returns aggregated counts for users, vehicles, and bins.
+    """
+    authentication_classes = [CookieJWTAuthentication]
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request):
+        # Count active, non-archived users (excluding staff)
+        users_active = User.objects.filter(
+            is_staff=False,
+            is_active=True,
+            is_archived=False
+        ).count()
+
+        # Count total vehicles
+        try:
+            from optimization.models import Vehicle
+            vehicles_total = Vehicle.objects.count()
+        except ImportError:
+            vehicles_total = 0
+
+        # Count active bins
+        try:
+            from optimization.models import Bin
+            bins_active = Bin.objects.filter(is_active=True).count()
+        except ImportError:
+            bins_active = 0
+
+        try:
+            from optimization.models import Municipality
+            municipality_total = Municipality.objects.count()
+        except ImportError:
+            municipality_total = 0
+
+
+        return Response({
+            'users_active': users_active,
+            'vehicles_total': vehicles_total,
+            'bins_active': bins_active,
+            'municipality_total' : municipality_total,
+        })

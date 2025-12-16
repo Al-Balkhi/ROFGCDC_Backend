@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views import (
     ActivityLogView,
+    AdminStatsView,
     ChangePasswordView,
     InitialSetupConfirmView,
     InitialSetupRequestOTPView,
@@ -40,4 +41,5 @@ urlpatterns = [
     path("profile/", ProfileView.as_view(), name="profile"),
     path("profile/password/", ChangePasswordView.as_view(), name="profile-password"),
     path("admin/activity-log/", ActivityLogView.as_view(), name="activity-log"),
+    path("admin/stats/", AdminStatsView.as_view(), name="admin-stats"),
 ]

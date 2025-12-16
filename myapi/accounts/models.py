@@ -58,7 +58,7 @@ class UserManager(BaseUserManager):
 class User(AbstractBaseUser, PermissionsMixin):
     class Roles(models.TextChoices):
         DRIVER = "driver", "Driver"
-        ANALYST = "analyst", "Analyst"
+#       ANALYST = "analyst", "Analyst"
         PLANNER = "planner", "Planner"
         ADMIN = "admin", "Admin"
 

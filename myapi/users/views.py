@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.filters import SearchFilter
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 
 from accounts.authentication import CookieJWTAuthentication
 from accounts.models import OneTimePassword
@@ -29,7 +30,7 @@ class UserViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminRole]
     pagination_class = UserPagination
     filter_backends = [SearchFilter]
-    search_fields = ["email", "username"]
+    search_fields = ["username"]
 
     def get_queryset(self):
         """
@@ -37,32 +38,41 @@ class UserViewSet(viewsets.ModelViewSet):
         By default, excludes archived users unless explicitly requested.
         For the 'restore' action, include archived users so they can be restored.
         """
-        queryset = User.objects.all()
+        queryset = User.objects.filter(is_staff=False)
+
+        # Apply search filter first, before other filters
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(username__icontains=search)
 
         # For restore, don't apply the default is_archived=False filter
         if getattr(self, "action", None) == "restore":
             # Still allow explicit query param filters if you want
-            role = self.request.query_params.get("role", None)
-            if role:
-                queryset = queryset.filter(role=role)
+            roles = self.request.query_params.getlist("role")
+            if roles:
+                queryset = queryset.filter(role__in=roles)
 
-            is_active = self.request.query_params.get("is_active", None)
-            if is_active is not None:
-                is_active_bool = is_active.lower() in ("true", "1", "yes")
-                queryset = queryset.filter(is_active=is_active_bool)
+            status_list = self.request.query_params.getlist("is_active")
+            if status_list:
+                bool_map = {"true": True, "1": True, "false": False, "0": False}
+                parsed = [bool_map.get(s.lower()) for s in status_list if s.lower() in bool_map]
+                if parsed:
+                    queryset = queryset.filter(is_active__in=parsed)
 
             # IMPORTANT: no default is_archived filter here
             return queryset.order_by("-date_joined")
 
         # Existing logic for all other actions
-        role = self.request.query_params.get("role", None)
-        if role:
-            queryset = queryset.filter(role=role)
+        roles = self.request.query_params.getlist("role")
+        if roles:
+            queryset = queryset.filter(role__in=roles)
 
-        is_active = self.request.query_params.get("is_active", None)
-        if is_active is not None:
-            is_active_bool = is_active.lower() in ("true", "1", "yes")
-            queryset = queryset.filter(is_active=is_active_bool)
+        status_list = self.request.query_params.getlist("is_active")
+        if status_list:
+            bool_map = {"true": True, "1": True, "false": False, "0": False}
+            parsed = [bool_map.get(s.lower()) for s in status_list if s.lower() in bool_map]
+            if parsed:
+                queryset = queryset.filter(is_active__in=parsed)
 
         is_archived = self.request.query_params.get("is_archived", None)
         if is_archived is not None:
