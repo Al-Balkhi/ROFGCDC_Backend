@@ -95,16 +95,16 @@ class RefreshTokenView(APIView):
     def post(self, request):
         refresh_token = request.COOKIES.get("refresh")
         if not refresh_token:
-            return Response({"detail": "Refresh token missing."}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response(status=401)
+
         try:
             token = RefreshToken(refresh_token)
             user = User.objects.get(id=token["user_id"])
-            token.blacklist()
         except (TokenError, User.DoesNotExist):
-            return Response({"detail": "Invalid refresh token."}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response(status=401)
 
         new_refresh = RefreshToken.for_user(user)
-        response = Response({"detail": "Token refreshed."})
+        response = Response()
         _set_jwt_cookies(response, new_refresh)
         return response
 

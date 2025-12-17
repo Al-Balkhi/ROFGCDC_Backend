@@ -139,11 +139,16 @@ class Scenario(models.Model):
         related_name='scenarios',
         blank=False
     )
+    
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
         related_name='scenarios'
     )
+    # -------------------
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -151,7 +156,8 @@ class Scenario(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        return f"{self.name} (by {self.created_by.email})"
+        user_email = self.created_by.email if self.created_by else "Unknown"
+        return f"{self.name} (by {user_email})"
 
 
 class RouteSolution(models.Model):

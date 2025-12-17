@@ -10,6 +10,7 @@ from .views import (
     MunicipalityViewSet,
     LandfillViewSet,
     AvailableBinList,
+    PlannerStatsView,
 )
 
 router = DefaultRouter()
@@ -26,5 +27,6 @@ urlpatterns = [
     path('solutions/', RouteSolutionListView.as_view(), name='solution-list'),
     path('solutions/<int:pk>/', RouteSolutionDetailView.as_view(), name='solution-detail'),
 
+    path('admin/stats/', PlannerStatsView.as_view(), name='planner-stats'),
     path('', include(router.urls)),
 ]
