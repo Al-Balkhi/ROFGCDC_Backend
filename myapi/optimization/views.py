@@ -19,6 +19,7 @@ from .serializers import (
 )
 from .services import solve_vrp
 from .permissions import IsAdmin, IsAdminOrPlanner, IsPlannerOrAdmin
+from .pagination import OptimizationPagination
 
 
 # ======================= BINS =======================
@@ -27,6 +28,7 @@ class BinViewSet(viewsets.ModelViewSet):
     queryset = Bin.objects.all()
     serializer_class = BinSerializer
     permission_classes = [IsAdmin]
+    pagination_class = OptimizationPagination
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
@@ -47,6 +49,7 @@ class MunicipalityViewSet(viewsets.ModelViewSet):
     queryset = Municipality.objects.all().prefetch_related('landfills')
     serializer_class = MunicipalitySerializer
     permission_classes = [IsAdmin]
+    pagination_class = OptimizationPagination
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
@@ -67,6 +70,7 @@ class LandfillViewSet(viewsets.ModelViewSet):
     queryset = Landfill.objects.all().prefetch_related('municipalities')
     serializer_class = LandfillSerializer
     permission_classes = [IsAdmin]
+    pagination_class = OptimizationPagination
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
@@ -87,6 +91,7 @@ class VehicleViewSet(viewsets.ModelViewSet):
     queryset = Vehicle.objects.all()
     serializer_class = VehicleSerializer
     permission_classes = [IsAdmin]
+    pagination_class = OptimizationPagination
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
@@ -119,6 +124,7 @@ class VehicleViewSet(viewsets.ModelViewSet):
 
 class ScenarioViewSet(viewsets.ModelViewSet):
     serializer_class = ScenarioSerializer
+    pagination_class = OptimizationPagination
 
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:

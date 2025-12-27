@@ -1,10 +1,10 @@
 from rest_framework.pagination import PageNumberPagination
 
 
-class UserPagination(PageNumberPagination):
+class OptimizationPagination(PageNumberPagination):
     """
-    Pagination class for user list views.
-    Page size is fixed at 15 users per page.
+    Pagination class for optimization list views.
+    Page size is fixed at 7 items per page.
     """
 
     page_size = 7
