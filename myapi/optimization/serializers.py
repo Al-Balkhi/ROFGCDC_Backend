@@ -206,6 +206,7 @@ class ScenarioSerializer(serializers.ModelSerializer):
     )
     created_by = serializers.StringRelatedField(read_only=True)
     solutions = RouteSolutionSlimSerializer(many=True, read_only=True)
+    is_expired = serializers.SerializerMethodField()
 
     class Meta:
         model = Scenario
@@ -225,10 +226,17 @@ class ScenarioSerializer(serializers.ModelSerializer):
             'created_by',
             'solutions',
             'start_landfill_id',
+            'is_expired',
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'created_by', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_by', 'created_at', 'updated_at', 'is_expired']
+
+    def get_is_expired(self, obj):
+        """Return True if the plan's collection_date is in the past (expired)."""
+        from django.utils import timezone
+        today = timezone.localdate()
+        return obj.collection_date < today
 
     def validate_collection_date(self, value):
         today = timezone.localdate()
