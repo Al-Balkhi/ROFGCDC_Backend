@@ -24,7 +24,8 @@ class OSRMService:
         params = {"annotations": "distance"}
 
         try:
-            response = requests.get(url, params=params, timeout=30)
+            # FIX: Add strict timeout (5 seconds)
+            response = requests.get(url, params=params, timeout=5)
             response.raise_for_status()
             data = response.json()
         except requests.RequestException as e:
@@ -147,7 +148,11 @@ class VRPSolver:
         total_distance = 0
         routes = []
         
-        for vehicle_id in range(1):
+        # FIX: Avoid hardcoded range(1). 
+        # Although model only supports 1 vehicle now, this prevents logic errors if updated.
+        num_vehicles = 1
+        
+        for vehicle_id in range(num_vehicles):
             index = self.routing.Start(vehicle_id)
             route_stops = []
             route_distance = 0

@@ -136,30 +136,51 @@ class ScenarioSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('يمكن تحديد موعد ضمن ستة أشهر فقط.')
         return value
 
-    def validate_bins(self, bins):
-        if not bins:
-            raise serializers.ValidationError('يجب اختيار حاوية واحدة على الأقل.')
-        inactive = [b.name for b in bins if not b.is_active]
-        if inactive:
-            raise serializers.ValidationError(f'الحاويات التالية غير نشطة: {", ".join(inactive)}')
-        
-        conflicting = Scenario.objects.filter(bins__in=bins).exclude(pk=getattr(self.instance, 'pk', None)).distinct()
-        if conflicting.exists():
-             raise serializers.ValidationError('بعض الحاويات مستخدمة في خطة أخرى.')
-        return bins
-
-    def validate_vehicle(self, vehicle):
-        in_use = Scenario.objects.filter(vehicle=vehicle).exclude(pk=getattr(self.instance, 'pk', None)).exists()
-        if in_use:
-            raise serializers.ValidationError('المركبة مستخدمة في خطة أخرى.')
-        return vehicle
-
     def validate(self, attrs):
+        # 1. Resolve Basic Fields
         vehicle = attrs.get('vehicle') or getattr(self.instance, 'vehicle', None)
         start_landfill = attrs.pop('start_landfill', None)
         start_lat = attrs.get('start_latitude')
         start_lon = attrs.get('start_longitude')
+        
+        # Resolve Date (New vs Update)
+        collection_date = attrs.get('collection_date')
+        if not collection_date and self.instance:
+            collection_date = self.instance.collection_date
+            
+        # 2. Validate Bins
+        bins = attrs.get('bins')
+        if bins is not None:  # Only validate if bins are being set/changed
+            if not bins:
+                raise serializers.ValidationError({'bins': 'يجب اختيار حاوية واحدة على الأقل.'})
+            
+            inactive = [b.name for b in bins if not b.is_active]
+            if inactive:
+                raise serializers.ValidationError({'bins': f'الحاويات التالية غير نشطة: {", ".join(inactive)}'})
+            
+            # Logic Fix: Check Availability Scoped by Date
+            if collection_date:  # Only check if we have a date
+                exclude_args = {'pk': self.instance.pk} if self.instance else {}
+                conflicting = Scenario.objects.filter(
+                    bins__in=bins,
+                    collection_date=collection_date
+                ).exclude(**exclude_args).distinct()
+                
+                if conflicting.exists():
+                    raise serializers.ValidationError({'bins': 'بعض الحاويات مستخدمة في خطة أخرى في نفس التاريخ.'})
 
+        # 3. Check Vehicle Availability (scoped by date)
+        if vehicle and collection_date:
+            exclude_args = {'pk': self.instance.pk} if self.instance else {}
+            in_use = Scenario.objects.filter(
+                vehicle=vehicle, 
+                collection_date=collection_date
+            ).exclude(**exclude_args).exists()
+            
+            if in_use:
+                raise serializers.ValidationError({'vehicle': 'المركبة مستخدمة في خطة أخرى في نفس التاريخ.'})
+
+        # 4. Handle Start Location (Keep existing logic)
         if start_landfill:
             start_lat, start_lon = start_landfill.latitude, start_landfill.longitude
         elif vehicle and start_lat is None:

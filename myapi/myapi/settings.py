@@ -35,6 +35,9 @@ DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 
 ALLOWED_HOSTS = []
 
+# Dynamic CORS - Do not hardcode localhost
+CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:5173').split(',')
+
 
 # Application definition
 
@@ -103,7 +106,8 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': False,
     'AUTH_COOKIE_SAMESITE': 'Lax',
-    'AUTH_COOKIE_SECURE': False,
+    # FIX: secure setting matches SESSION_COOKIE_SECURE (True in Prod, False in Dev)
+    'AUTH_COOKIE_SECURE': os.getenv('SESSION_COOKIE_SECURE', 'True' if not DEBUG else 'False').lower() == 'true',
     'AUTH_COOKIE_HTTP_ONLY': True,
 }
 
@@ -176,28 +180,21 @@ DEFAULT_FROM_EMAIL = EMAIL_HOST_USER or 'noreply@myapi.local'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # CORS configuration
-CORS_ALLOWED_ORIGINS = [
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-]
-
 CORS_ALLOW_CREDENTIALS = True
 
 # CSRF configuration
 # Auto-set based on DEBUG, but allow override via environment variable
 CSRF_COOKIE_SECURE = os.getenv('CSRF_COOKIE_SECURE', 'True' if not DEBUG else 'False').lower() == 'true'
 CSRF_COOKIE_HTTPONLY = True
-CSRF_TRUSTED_ORIGINS = [
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-]
+CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 CSRF_COOKIE_SAMESITE = 'Lax'
 
 # Session cookie configuration
 # Auto-set based on DEBUG, but allow override via environment variable
 SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'True' if not DEBUG else 'False').lower() == 'true'
-SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_HTTPONLY = False  
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SECURE = False  
 
 # OSRM Configuration
 OSRM_BASE_URL = os.getenv('OSRM_BASE_URL', 'http://localhost:5000')

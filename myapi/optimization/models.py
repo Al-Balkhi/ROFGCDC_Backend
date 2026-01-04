@@ -154,6 +154,10 @@ class Scenario(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+        indexes = [
+            # FIX: Add index for frequent date filtering
+            models.Index(fields=['collection_date']),
+        ]
 
     def __str__(self):
         user_email = self.created_by.email if self.created_by else "Unknown"

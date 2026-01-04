@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import timedelta, datetime
 import logging
 
 from rest_framework import viewsets, status, permissions
@@ -108,9 +108,20 @@ class VehicleViewSet(viewsets.ModelViewSet):
 
         if user.role == user.Roles.PLANNER:
             scenario_id = self.request.query_params.get('scenario_id')
-            today = timezone.localdate()
+            
+            # FIX: Accept specific date or default to today
+            # Use 'YYYY-MM-DD' format
+            date_str = self.request.query_params.get('collection_date')
+            target_date = timezone.localdate()
+            if date_str:
+                try:
+                    target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                except ValueError:
+                    pass  # Fallback to today on error
 
-            busy_qs = Scenario.objects.filter(collection_date__gte=today)
+            # FIX: Filter busy vehicles ONLY for the specific target date
+            busy_qs = Scenario.objects.filter(collection_date=target_date)
+            
             if scenario_id:
                 busy_qs = busy_qs.exclude(id=scenario_id)
 
