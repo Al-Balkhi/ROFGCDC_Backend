@@ -18,7 +18,7 @@ from .serializers import (
     LandfillSerializer,
     BinAvailableSerializer,
 )
-from .services import solve_vrp, OSRMClientError
+from .services import solve_vrp, VRPSolver
 
 logger = logging.getLogger(__name__)
 from .permissions import IsAdmin, IsAdminOrPlanner, IsPlannerOrAdmin
@@ -181,41 +181,26 @@ class SolveScenarioView(APIView):
     def post(self, request, pk):
         scenario = get_object_or_404(Scenario, pk=pk)
 
-        if (
-            request.user.role == request.user.Roles.PLANNER
-            and scenario.created_by != request.user
-        ):
+        # Permission check
+        if request.user.role == request.user.Roles.PLANNER and scenario.created_by != request.user:
             return Response(
-                {"detail": "غير مسموح"},
+                {"detail": "لا تملك صلاحية تعديل هذه الخطة."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
         try:
-            result = solve_vrp(scenario.id)
+            solver = VRPSolver(scenario.id)
+            result = solver.run()
             return Response(result, status=status.HTTP_200_OK)
-        except ObjectDoesNotExist as e:
-            return Response(
-                {"detail": str(e)},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        except (ValueError, ValidationError) as e:
-            return Response(
-                {"detail": str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        except OSRMClientError as e:
-            logger.error(f"OSRM service error for scenario {scenario.id}: {str(e)}")
-            return Response(
-                {"detail": "خدمة الحساب غير متاحة حالياً. يرجى المحاولة لاحقاً."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE
-            )
+        except ValidationError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             logger.error(
                 f"Unexpected error solving scenario {scenario.id}: {str(e)}",
                 exc_info=True
             )
             return Response(
-                {"detail": "حدث خطأ غير متوقع. يرجى المحاولة لاحقاً."},
+                {"detail": "حدث خطأ غير متوقع أثناء المعالجة."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 

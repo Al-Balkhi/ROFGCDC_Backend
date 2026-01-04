@@ -37,12 +37,14 @@ class UserViewSet(viewsets.ModelViewSet):
         Return queryset filtered by request parameters.
         By default, excludes archived users unless explicitly requested.
         For the 'restore' action, include archived users so they can be restored.
+        Optimized search: only applies search for queries with at least 2 characters.
         """
         queryset = User.objects.filter(is_staff=False)
 
         # Apply search filter first, before other filters
-        search = self.request.query_params.get("search")
-        if search:
+        # Minimum 2 characters to prevent expensive queries on short inputs
+        search = self.request.query_params.get("search", "").strip()
+        if search and len(search) >= 2:
             queryset = queryset.filter(username__icontains=search)
 
         # For restore, don't apply the default is_archived=False filter

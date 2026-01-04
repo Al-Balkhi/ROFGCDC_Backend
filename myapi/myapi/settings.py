@@ -198,3 +198,6 @@ CSRF_COOKIE_SAMESITE = 'Lax'
 SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'True' if not DEBUG else 'False').lower() == 'true'
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'Lax'
+
+# OSRM Configuration
+OSRM_BASE_URL = os.getenv('OSRM_BASE_URL', 'http://localhost:5000')
