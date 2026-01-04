@@ -26,10 +26,12 @@ load_dotenv(BASE_DIR / '.env')
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-wk#7e@d5t=&c3%zu%&012qwnudhnnt7hlw#q84#t-=@j3h5hl*'
+SECRET_KEY = os.getenv('SECRET_KEY')
+if not SECRET_KEY:
+    raise ValueError('SECRET_KEY environment variable must be set')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 
 ALLOWED_HOSTS = []
 
@@ -112,11 +114,11 @@ SIMPLE_JWT = {
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'ROFGCIDC',
-        'USER': 'postgres',
-        'PASSWORD': 'Moh@2003',
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'NAME': os.getenv('DB_NAME', 'ROFGCIDC'),
+        'USER': os.getenv('DB_USER', 'postgres'),
+        'PASSWORD': os.getenv('DB_PASSWORD'),
+        'HOST': os.getenv('DB_HOST', 'localhost'),
+        'PORT': os.getenv('DB_PORT', '5432'),
     }
 }
 
@@ -182,7 +184,9 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOW_CREDENTIALS = True
 
 # CSRF configuration
-CSRF_COOKIE_SECURE = False
+# Auto-set based on DEBUG, but allow override via environment variable
+CSRF_COOKIE_SECURE = os.getenv('CSRF_COOKIE_SECURE', 'True' if not DEBUG else 'False').lower() == 'true'
+CSRF_COOKIE_HTTPONLY = True
 CSRF_TRUSTED_ORIGINS = [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
@@ -190,5 +194,7 @@ CSRF_TRUSTED_ORIGINS = [
 CSRF_COOKIE_SAMESITE = 'Lax'
 
 # Session cookie configuration
-SESSION_COOKIE_SECURE = False
+# Auto-set based on DEBUG, but allow override via environment variable
+SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'True' if not DEBUG else 'False').lower() == 'true'
+SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'Lax'

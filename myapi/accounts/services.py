@@ -1,7 +1,8 @@
 import logging
-import random
+import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Optional
 
 from django.conf import settings
 from django.core.mail import send_mail
@@ -28,7 +29,7 @@ class OTPService:
     COOLDOWN = timedelta(minutes=1)
 
     @classmethod
-    def _latest_otp(cls, user: User, purpose: str):
+    def _latest_otp(cls, user: User, purpose: str) -> Optional[OneTimePassword]:
         return (
             OneTimePassword.objects.filter(user=user, purpose=purpose, is_used=False)
             .order_by("-created_at")
@@ -46,7 +47,8 @@ class OTPService:
             # Invalidate previous OTP so the newest one is the only valid option
             latest.mark_used()
 
-        code = f"{random.randint(0, 99999):05d}"
+        # Generate cryptographically secure 5-digit OTP code
+        code = ''.join(secrets.choice('0123456789') for _ in range(cls.OTP_LENGTH))
         expires_at = now + cls.EXPIRY
         otp = OneTimePassword.objects.create(
             user=user,

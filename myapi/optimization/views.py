@@ -1,9 +1,10 @@
 from datetime import timedelta
+import logging
 
 from rest_framework import viewsets, status, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -17,7 +18,9 @@ from .serializers import (
     LandfillSerializer,
     BinAvailableSerializer,
 )
-from .services import solve_vrp
+from .services import solve_vrp, OSRMClientError
+
+logger = logging.getLogger(__name__)
 from .permissions import IsAdmin, IsAdminOrPlanner, IsPlannerOrAdmin
 from .pagination import OptimizationPagination
 
@@ -187,8 +190,34 @@ class SolveScenarioView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        result = solve_vrp(scenario.id)
-        return Response(result, status=status.HTTP_200_OK)
+        try:
+            result = solve_vrp(scenario.id)
+            return Response(result, status=status.HTTP_200_OK)
+        except ObjectDoesNotExist as e:
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except (ValueError, ValidationError) as e:
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except OSRMClientError as e:
+            logger.error(f"OSRM service error for scenario {scenario.id}: {str(e)}")
+            return Response(
+                {"detail": "خدمة الحساب غير متاحة حالياً. يرجى المحاولة لاحقاً."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        except Exception as e:
+            logger.error(
+                f"Unexpected error solving scenario {scenario.id}: {str(e)}",
+                exc_info=True
+            )
+            return Response(
+                {"detail": "حدث خطأ غير متوقع. يرجى المحاولة لاحقاً."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 # ======================= AVAILABLE BINS =======================
