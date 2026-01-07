@@ -28,19 +28,6 @@ class UserManager(BaseUserManager):
 
         user.save(using=self._db)
 
-        # If the user was created without a password, automatically send an
-        # INITIAL_SETUP OTP to kick off onboarding. We reference OneTimePassword
-        # at runtime to avoid circular imports.
-        if not has_password:
-            try:
-                from .services import OTPService  # type: ignore
-
-                OTPService.issue(user, OneTimePassword.Purpose.INITIAL_SETUP)
-            except Exception:
-                # Swallow any OTP-related errors so user creation is not blocked.
-                # Logging can be added here if desired.
-                pass
-
         return user
 
     def create_superuser(self, email, password=None, **extra_fields):

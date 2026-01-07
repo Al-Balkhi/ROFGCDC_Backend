@@ -31,3 +31,9 @@ staticfiles/
 # OSRM 
 osrm-data/
 osrm-data/*
+
+# Pytest / Coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
