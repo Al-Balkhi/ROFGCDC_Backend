@@ -155,7 +155,6 @@ class ScenarioViewSet(viewsets.ModelViewSet):
             'municipality',
         ).prefetch_related('bins')
 
-        # 🔴 عزل الـ Planners
         if user.role == user.Roles.PLANNER:
             qs = qs.filter(created_by=user)
 
@@ -256,7 +255,6 @@ class RouteSolutionListView(APIView):
             'scenario__created_by'
         ).prefetch_related('scenario__bins')
 
-        # 🔴 عزل الـ Planners
         if user.role == user.Roles.PLANNER:
             qs = qs.filter(scenario__created_by=user)
 

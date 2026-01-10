@@ -8,7 +8,6 @@ from .models import Scenario, RouteSolution
 
 logger = logging.getLogger(__name__)
 
-
 class OSRMService:
     """Handles communication with the OSRM backend."""
     
@@ -24,7 +23,6 @@ class OSRMService:
         params = {"annotations": "distance"}
 
         try:
-            # FIX: Add strict timeout (5 seconds)
             response = requests.get(url, params=params, timeout=5)
             response.raise_for_status()
             data = response.json()
@@ -36,6 +34,36 @@ class OSRMService:
             raise ValidationError("استجابة غير صالحة من خدمة الخرائط.")
 
         return cls._sanitize_matrix(data["distances"], len(locations))
+    
+    # --- إضافة جديدة: دالة لجلب هندسة المسار (رسم الطريق) ---
+    @classmethod
+    def get_route_geometry(cls, locations: List[Tuple[float, float]]) -> str:
+        """Fetch the polyline geometry for a sequence of locations."""
+        if not locations:
+            return ""
+        
+        # OSRM expects: lon,lat
+        coordinates = ";".join([f"{lon},{lat}" for lat, lon in locations])
+        url = f"{cls.BASE_URL}/route/v1/driving/{coordinates}"
+        
+        # overview=full يعطي تفاصيل الرسم كاملة
+        # geometries=polyline6 يعطي النص المشفر بدقة عالية (أو polyline عادي)
+        params = {
+            "overview": "full",
+            "geometries": "polyline", 
+            "steps": "false"
+        }
+
+        try:
+            response = requests.get(url, params=params, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                if "routes" in data and len(data["routes"]) > 0:
+                    return data["routes"][0]["geometry"]
+        except Exception as e:
+            logger.error(f"Failed to fetch route geometry: {e}")
+        
+        return ""
 
     @staticmethod
     def _sanitize_matrix(raw_distances, expected_size) -> List[List[int]]:
@@ -148,13 +176,12 @@ class VRPSolver:
         total_distance = 0
         routes = []
         
-        # FIX: Avoid hardcoded range(1). 
-        # Although model only supports 1 vehicle now, this prevents logic errors if updated.
         num_vehicles = 1
         
         for vehicle_id in range(num_vehicles):
             index = self.routing.Start(vehicle_id)
             route_stops = []
+            route_coords = [self.depot_location] # نبدأ من المستودع
             route_distance = 0
             
             while not self.routing.IsEnd(index):
@@ -162,7 +189,10 @@ class VRPSolver:
                 if node != 0: 
                     bin_index = node - 1
                     if 0 <= bin_index < len(self.bins):
-                        route_stops.append(self.bins[bin_index].id)
+                        current_bin = self.bins[bin_index]
+                        route_stops.append(current_bin.id)
+                        # إضافة إحداثيات الحاوية للمسار
+                        route_coords.append((current_bin.latitude, current_bin.longitude))
 
                 previous_index = index
                 index = self.solution.Value(self.routing.NextVar(index))
@@ -170,12 +200,19 @@ class VRPSolver:
                     previous_index, index, vehicle_id
                 )
 
+            route_coords.append(self.depot_location)
             total_distance += route_distance
+            
+            geometry = ""
+            if route_stops:
+                geometry = OSRMService.get_route_geometry(route_coords)
+
             if route_stops:
                 routes.append({
                     'vehicle': self.vehicle.name,
                     'vehicle_id': self.vehicle.id,
-                    'stops': route_stops
+                    'stops': route_stops,
+                    'geometry': geometry # <--- الحقل الجديد
                 })
 
         total_distance_km = total_distance / 1000.0

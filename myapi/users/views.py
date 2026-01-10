@@ -119,13 +119,7 @@ class UserViewSet(viewsets.ModelViewSet):
         user.is_active = False
         user.save(update_fields=["is_active"])
 
-        # Trigger INITIAL_SETUP OTP
-        try:
-            OTPService.issue(user, OneTimePassword.Purpose.INITIAL_SETUP)
-        except OTPServiceError as exc:
-            # Log the error but don't fail user creation
-            # In production, you might want to log this properly
-            pass
+
 
         # Return created user details
         response_serializer = UserDetailSerializer(user)

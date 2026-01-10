@@ -9,6 +9,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.http import JsonResponse
 from django.utils.decorators import method_decorator
+from users.permissions import IsAdminRole
 
 @method_decorator(ensure_csrf_cookie, name='dispatch')
 class CSRFView(APIView):
@@ -279,7 +280,7 @@ class AdminStatsView(APIView):
     Returns aggregated counts for users, vehicles, and bins.
     """
     authentication_classes = [CookieJWTAuthentication]
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsAdminRole]
 
     def get(self, request):
         # Count active, non-archived users (excluding staff)
