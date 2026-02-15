@@ -63,7 +63,7 @@ class BinSerializer(DamascusLocationMixin, serializers.ModelSerializer):
     municipality = MunicipalitySerializer(read_only=True)
     municipality_id = serializers.PrimaryKeyRelatedField(
         queryset=Municipality.objects.all(), source='municipality',
-        write_only=True, required=False, allow_null=True,
+        write_only=True,
     )
 
     class Meta:
@@ -80,17 +80,16 @@ class BinAvailableSerializer(serializers.ModelSerializer):
         read_only_fields = ['id']
 
 
-class VehicleSerializer(DamascusLocationMixin, serializers.ModelSerializer):
+class VehicleSerializer(serializers.ModelSerializer):
     municipality = MunicipalitySerializer(read_only=True)
     municipality_id = serializers.PrimaryKeyRelatedField(
         queryset=Municipality.objects.all(), source='municipality',
-        write_only=True, required=False, allow_null=True,
+        write_only=True,
     )
 
     class Meta:
         model = Vehicle
-        fields = ['id', 'name', 'capacity', 'start_latitude', 'start_longitude', 
-                  'municipality', 'municipality_id', 'created_at', 'updated_at']
+        fields = ['id', 'name', 'capacity', 'municipality', 'municipality_id', 'created_at', 'updated_at']
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
@@ -184,7 +183,9 @@ class ScenarioSerializer(serializers.ModelSerializer):
         if start_landfill:
             start_lat, start_lon = start_landfill.latitude, start_landfill.longitude
         elif vehicle and start_lat is None:
-            start_lat, start_lon = vehicle.start_latitude, vehicle.start_longitude
+            start_lat, start_lon = vehicle.municipality.hq_latitude, vehicle.municipality.hq_longitude
+            if start_lat is None or start_lon is None:
+                raise serializers.ValidationError({'vehicle': 'بلدية المركبة لا تملك إحداثيات مركز (HQ).'})
 
         attrs['start_latitude'] = start_lat
         attrs['start_longitude'] = start_lon

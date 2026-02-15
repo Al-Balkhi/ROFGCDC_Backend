@@ -15,6 +15,13 @@ class Municipality(models.Model):
         null=True, blank=True
     )
     description = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_municipalities'
+    )
 
     class Meta:
         ordering = ['name']
@@ -32,7 +39,14 @@ class Landfill(models.Model):
         validators=[validate_damascus_longitude]
     )
     description = models.TextField(blank=True)
-
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_landfills'
+    )
+    
     # Many-to-Many with Municipality
     municipalities = models.ManyToManyField(
         Municipality,
@@ -66,6 +80,13 @@ class Bin(models.Model):
         null=True, blank=True,
         related_name='bins'
     )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_bins'
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -86,18 +107,18 @@ class Vehicle(models.Model):
     capacity = models.PositiveIntegerField(
         validators=[MinValueValidator(1)]
     )
-    start_latitude = models.FloatField(
-        validators=[validate_damascus_latitude]
-    )
-    start_longitude = models.FloatField(
-        validators=[validate_damascus_longitude]
-    )
 
     municipality = models.ForeignKey(
         Municipality,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
+        on_delete=models.PROTECT,
         related_name='vehicles'
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_vehicles'
     )
 
     created_at = models.DateTimeField(auto_now_add=True)

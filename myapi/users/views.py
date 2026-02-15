@@ -40,6 +40,10 @@ class UserViewSet(viewsets.ModelViewSet):
         Optimized search: only applies search for queries with at least 2 characters.
         """
         queryset = User.objects.filter(is_staff=False)
+        requester = self.request.user
+
+        if not requester.is_superuser:
+            queryset = queryset.filter(created_by=requester)
 
         # Apply search filter first, before other filters
         # Minimum 2 characters to prevent expensive queries on short inputs
@@ -105,14 +109,23 @@ class UserViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        role = serializer.validated_data.get("role", User.Roles.DRIVER)
+
+        if role == User.Roles.ADMIN and not request.user.is_superuser:
+            return Response(
+                {"detail": "Only superuser can create admin users."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         # Create user with unusable password and inactive status
         user = User.objects.create_user(
             email=serializer.validated_data["email"],
             password=None,  # This triggers set_unusable_password() and is_active=False
             username=serializer.validated_data["username"],
-            role=serializer.validated_data.get("role", User.Roles.DRIVER),
+            role=role,
             phone=serializer.validated_data.get("phone", ""),
             image_profile=serializer.validated_data.get("image_profile"),
+            created_by=request.user,
         )
 
         # Ensure is_active is False (should already be set by create_user)

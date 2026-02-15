@@ -12,7 +12,7 @@ class BinAdmin(admin.ModelAdmin):
 
 @admin.register(Vehicle)
 class VehicleAdmin(admin.ModelAdmin):
-    list_display = ['name', 'capacity', 'start_latitude', 'start_longitude', 'created_at']
+    list_display = ['name', 'capacity', 'municipality', 'created_at']
     search_fields = ['name']
     readonly_fields = ['created_at', 'updated_at']
 

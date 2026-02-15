@@ -125,7 +125,7 @@ class VRPSolver:
         elif self.vehicle.start_latitude and self.vehicle.start_longitude:
             self.depot_location = (self.vehicle.start_latitude, self.vehicle.start_longitude)
         else:
-            raise ValidationError("لم يتم تحديد نقطة انطلاق صالحة (في الخطة أو المركبة).")
+            raise ValidationError("لم يتم تحديد نقطة انطلاق صالحة (في الخطة أو بلدية المركبة).")
 
         self.locations = [self.depot_location] + [(b.latitude, b.longitude) for b in self.bins]
 

@@ -25,6 +25,22 @@ from .permissions import IsAdmin, IsAdminOrPlanner, IsPlannerOrAdmin
 from .pagination import OptimizationPagination
 
 
+def _scope_by_creator(qs, request):
+    user = request.user
+    if user.is_superuser:
+        return qs
+
+    if user.role == user.Roles.ADMIN:
+        return qs.filter(created_by=user)
+
+    if user.role == user.Roles.PLANNER:
+        if user.created_by_id:
+            return qs.filter(created_by_id=user.created_by_id)
+        return qs.none()
+
+    return qs.none()
+
+
 # ======================= BINS =======================
 
 class BinViewSet(viewsets.ModelViewSet):
@@ -39,11 +55,14 @@ class BinViewSet(viewsets.ModelViewSet):
         return super().get_permissions()
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = _scope_by_creator(super().get_queryset(), self.request)
         municipality_id = self.request.query_params.get('municipality')
         if municipality_id:
             qs = qs.filter(municipality_id=municipality_id)
         return qs
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
 
 
 # ======================= MUNICIPALITIES =======================
@@ -60,11 +79,14 @@ class MunicipalityViewSet(viewsets.ModelViewSet):
         return super().get_permissions()
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = _scope_by_creator(super().get_queryset(), self.request)
         municipality_id = self.request.query_params.get('municipality')
         if municipality_id:
             qs = qs.filter(id=municipality_id)
         return qs
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
 
 
 # ======================= LANDFILLS =======================
@@ -81,11 +103,14 @@ class LandfillViewSet(viewsets.ModelViewSet):
         return super().get_permissions()
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = _scope_by_creator(super().get_queryset(), self.request)
         municipality_id = self.request.query_params.get('municipality')
         if municipality_id:
             qs = qs.filter(municipalities__id=municipality_id)
         return qs
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
 
 
 # ======================= VEHICLES =======================
@@ -102,7 +127,7 @@ class VehicleViewSet(viewsets.ModelViewSet):
         return super().get_permissions()
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = _scope_by_creator(super().get_queryset(), self.request)
         user = self.request.user
         municipality_id = self.request.query_params.get('municipality')
 
@@ -133,6 +158,9 @@ class VehicleViewSet(viewsets.ModelViewSet):
 
         return qs.distinct()
 
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
 
 # ======================= SCENARIOS =======================
 
@@ -141,9 +169,7 @@ class ScenarioViewSet(viewsets.ModelViewSet):
     pagination_class = OptimizationPagination
 
     def get_permissions(self):
-        if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            return [IsPlannerOrAdmin()]
-        return [permissions.IsAuthenticated()]
+        return [IsPlannerOrAdmin()]
 
     def get_queryset(self):
         user = self.request.user
@@ -157,6 +183,10 @@ class ScenarioViewSet(viewsets.ModelViewSet):
 
         if user.role == user.Roles.PLANNER:
             qs = qs.filter(created_by=user)
+        elif user.role == user.Roles.ADMIN and not user.is_superuser:
+            qs = qs.filter(created_by__created_by=user)
+        elif user.role not in [user.Roles.ADMIN, user.Roles.PLANNER]:
+            qs = qs.none()
 
         search = self.request.query_params.get('search')
         is_archived = self.request.query_params.get('is_archived')
@@ -180,7 +210,19 @@ class ScenarioViewSet(viewsets.ModelViewSet):
         return qs.order_by('-collection_date', '-created_at')
 
     def perform_create(self, serializer):
+        if self.request.user.role != self.request.user.Roles.PLANNER:
+            raise ValidationError('فقط المخطط يمكنه إنشاء الخطط.')
         serializer.save(created_by=self.request.user)
+
+    def perform_update(self, serializer):
+        if self.request.user.role != self.request.user.Roles.PLANNER:
+            raise ValidationError('فقط المخطط يمكنه تعديل الخطط.')
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        if self.request.user.role != self.request.user.Roles.PLANNER:
+            raise ValidationError('فقط المخطط يمكنه حذف الخطط.')
+        instance.delete()
 
 
 # ======================= SOLVE =======================

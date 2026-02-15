@@ -45,7 +45,6 @@ class UserManager(BaseUserManager):
 class User(AbstractBaseUser, PermissionsMixin):
     class Roles(models.TextChoices):
         DRIVER = "driver", "Driver"
-#       ANALYST = "analyst", "Analyst"
         PLANNER = "planner", "Planner"
         ADMIN = "admin", "Admin"
 
@@ -73,6 +72,13 @@ class User(AbstractBaseUser, PermissionsMixin):
         choices=PasswordChangeReason.choices,
         blank=True,
         null=True,
+    )
+    created_by = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_users",
     )
 
     objects = UserManager()
