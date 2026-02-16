@@ -20,6 +20,7 @@ class UserSerializer(serializers.ModelSerializer):
             "last_logout_at",
             "last_password_change_at",
             "last_password_change_reason",
+            "is_superuser",
         ]
         read_only_fields = [
             "id",

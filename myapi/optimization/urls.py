@@ -11,6 +11,7 @@ from .views import (
     LandfillViewSet,
     AvailableBinList,
     PlannerStatsView,
+    ScenarioTemplateViewSet,
 )
 
 router = DefaultRouter()
@@ -19,6 +20,7 @@ router.register(r'vehicles', VehicleViewSet, basename='vehicle')
 router.register(r'scenarios', ScenarioViewSet, basename='scenario')
 router.register(r'municipalities', MunicipalityViewSet, basename='municipality')
 router.register(r'landfills', LandfillViewSet, basename='landfill')
+router.register(r'scenario-templates', ScenarioTemplateViewSet, basename='scenario-template')
 
 urlpatterns = [
     

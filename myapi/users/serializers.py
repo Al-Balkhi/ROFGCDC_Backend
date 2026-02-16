@@ -9,6 +9,7 @@ class UserListSerializer(serializers.ModelSerializer):
     Serializer for listing users with limited fields.
     Used in the list action of UserViewSet.
     """
+    created_by = serializers.StringRelatedField(read_only=True)
 
     class Meta:
         model = User
@@ -18,9 +19,11 @@ class UserListSerializer(serializers.ModelSerializer):
             "username",
             "role",
             "is_active",
+            "is_active",
             "is_archived",
+            "created_by",
         ]
-        read_only_fields = ["id", "email"]
+        read_only_fields = ["id", "email", "created_by"]
 
 
 class UserDetailSerializer(serializers.ModelSerializer):

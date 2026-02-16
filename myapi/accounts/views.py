@@ -283,37 +283,39 @@ class AdminStatsView(APIView):
     permission_classes = [IsAdminRole]
 
     def get(self, request):
-        # Count active, non-archived users (excluding staff)
-        users_active = User.objects.filter(
-            is_staff=False,
-            is_active=True,
-            is_archived=False
-        ).count()
-
-        # Count total vehicles
+        user = request.user
+        
+        # Base querysets
+        users_qs = User.objects.filter(is_staff=False, is_active=True, is_archived=False)
+        
         try:
-            from optimization.models import Vehicle
-            vehicles_total = Vehicle.objects.count()
+            from optimization.models import Vehicle, Bin, Municipality
+            vehicles_qs = Vehicle.objects.all()
+            bins_qs = Bin.objects.filter(is_active=True)
+            municipality_qs = Municipality.objects.all()
         except ImportError:
-            vehicles_total = 0
+            vehicles_qs = users_qs.none()
+            bins_qs = users_qs.none()
+            municipality_qs = users_qs.none()
 
-        # Count active bins
-        try:
-            from optimization.models import Bin
-            bins_active = Bin.objects.filter(is_active=True).count()
-        except ImportError:
-            bins_active = 0
-
-        try:
-            from optimization.models import Municipality
-            municipality_total = Municipality.objects.count()
-        except ImportError:
-            municipality_total = 0
-
+        # Filter if not superuser
+        if not user.is_superuser:
+            # For users: show users created by this admin
+            users_qs = users_qs.filter(created_by=user)
+            
+            # For optimization objects: show objects created by this admin
+            if vehicles_qs.count() > 0:
+                vehicles_qs = vehicles_qs.filter(created_by=user)
+            
+            if bins_qs.count() > 0:
+                bins_qs = bins_qs.filter(created_by=user)
+                
+            if municipality_qs.count() > 0:
+                municipality_qs = municipality_qs.filter(created_by=user)
 
         return Response({
-            'users_active': users_active,
-            'vehicles_total': vehicles_total,
-            'bins_active': bins_active,
-            'municipality_total' : municipality_total,
+            'users_active': users_qs.count(),
+            'vehicles_total': vehicles_qs.count(),
+            'bins_active': bins_qs.count(),
+            'municipality_total': municipality_qs.count(),
         })

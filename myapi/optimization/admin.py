@@ -1,5 +1,13 @@
 from django.contrib import admin
-from .models import Bin, Vehicle, Scenario, RouteSolution, Municipality, Landfill
+from .models import (
+    Bin,
+    Vehicle,
+    Scenario,
+    RouteSolution,
+    Municipality,
+    Landfill,
+    ScenarioTemplate,
+)
 
 
 @admin.register(Bin)
@@ -32,14 +40,19 @@ class LandfillAdmin(admin.ModelAdmin):
 
 @admin.register(Scenario)
 class ScenarioAdmin(admin.ModelAdmin):
-    list_display = ['name', 'municipality', 'vehicle', 'collection_date', 'created_by', 'created_at']
-    list_filter = ['collection_date', 'created_at', 'municipality']
+    list_display = ['name', 'municipality', 'vehicle', 'end_landfill', 'status', 'collection_date', 'created_by', 'created_at']
+    list_filter = ['status', 'collection_date', 'created_at', 'municipality']
     search_fields = ['name', 'description']
     filter_horizontal = ['bins']
     readonly_fields = ['created_at', 'updated_at']
-    
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related('created_by', 'municipality', 'vehicle')
+
+
+@admin.register(ScenarioTemplate)
+class ScenarioTemplateAdmin(admin.ModelAdmin):
+    list_display = ['name', 'municipality', 'vehicle', 'end_landfill', 'weekdays', 'is_active', 'created_by']
+    list_filter = ['is_active', 'municipality']
+    search_fields = ['name']
+    filter_horizontal = ['bins']
 
 
 @admin.register(RouteSolution)
@@ -47,6 +60,3 @@ class RouteSolutionAdmin(admin.ModelAdmin):
     list_display = ['scenario', 'total_distance', 'created_at']
     list_filter = ['created_at']
     readonly_fields = ['created_at']
-    
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related('scenario')
