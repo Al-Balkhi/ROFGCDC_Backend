@@ -14,7 +14,7 @@ class Municipality(models.Model):
         validators=[validate_damascus_longitude],
         null=True, blank=True
     )
-    description = models.TextField(blank=True)
+
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -38,7 +38,7 @@ class Landfill(models.Model):
     longitude = models.FloatField(
         validators=[validate_damascus_longitude]
     )
-    description = models.TextField(blank=True)
+
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

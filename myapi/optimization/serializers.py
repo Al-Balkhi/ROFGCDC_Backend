@@ -48,7 +48,7 @@ class MunicipalitySerializer(DamascusLocationMixin, serializers.ModelSerializer)
 
     class Meta:
         model = Municipality
-        fields = ['id', 'name', 'hq_latitude', 'hq_longitude', 'description', 'created_by']
+        fields = ['id', 'name', 'hq_latitude', 'hq_longitude', 'created_by']
         read_only_fields = ['id', 'created_by']
 
 
@@ -63,7 +63,7 @@ class LandfillSerializer(DamascusLocationMixin, serializers.ModelSerializer):
 
     class Meta:
         model = Landfill
-        fields = ['id', 'name', 'latitude', 'longitude', 'description', 'municipalities', 'municipality_ids', 'created_by']
+        fields = ['id', 'name', 'latitude', 'longitude', 'municipalities', 'municipality_ids', 'created_by']
         read_only_fields = ['id', 'created_by']
 
 
