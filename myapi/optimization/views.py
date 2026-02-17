@@ -235,6 +235,25 @@ class ScenarioViewSet(viewsets.ModelViewSet):
         if status_filter:
             qs = qs.filter(status=status_filter)
 
+        week_day = self.request.query_params.get('week_day')
+        if week_day is not None and week_day.strip():
+            try:
+                # Mapping from JS getDay() style (if used) or just 0=Mon, 6=Sun
+                # JS 0=Sun, 1=Mon...
+                # My frontend uses ['Mon', 'Tue'...] mapped to index 0..6?
+                # In PlanSideBar: `['الإثنين', ...].map((day, index) => ...)`
+                # So 0=Monday, 1=Tuesday, ..., 6=Sunday.
+                # Django __week_day: 1=Sunday, 2=Monday, ..., 7=Saturday.
+                # Map: 0->2, 1->3, ..., 4->6, 5->7, 6->1.
+                wd = int(week_day)
+                django_wd = {
+                    0: 2, 1: 3, 2: 4, 3: 5, 4: 6, 5: 7, 6: 1
+                }.get(wd)
+                if django_wd:
+                    qs = qs.filter(collection_date__week_day=django_wd)
+            except ValueError:
+                pass
+
         return qs.order_by('-collection_date', '-created_at')
 
     def perform_create(self, serializer):
