@@ -178,7 +178,7 @@ class Scenario(models.Model):
     )
     generated_from_template = models.ForeignKey(
         'ScenarioTemplate',
-        on_delete=models.SET_NULL,
+        on_delete=models.CASCADE,
         null=True,
         blank=True,
         related_name='generated_scenarios'

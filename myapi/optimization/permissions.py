@@ -30,3 +30,13 @@ class IsPlannerOrAdmin(permissions.BasePermission):
             request.user.is_authenticated and
             request.user.role in [User.Roles.PLANNER, User.Roles.ADMIN]
         )
+
+
+class IsPlanner(permissions.BasePermission):
+    """Permission to allow only Planner role."""
+    
+    def has_permission(self, request, view):
+        return (
+            request.user.is_authenticated and
+            request.user.role == User.Roles.PLANNER
+        )

@@ -1,6 +1,7 @@
 from datetime import timedelta
 from django.utils import timezone
 from rest_framework import serializers
+from accounts.models import User
 from .models import (
     Bin,
     Vehicle,
@@ -15,6 +16,12 @@ from .validators import (
     DAMASCUS_LON_MIN, DAMASCUS_LON_MAX
 )
 
+class CreatorSerializer(serializers.ModelSerializer):
+    admin_name = serializers.CharField(source='created_by.username', read_only=True, default=None)
+
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'email', 'admin_name']
 
 class DamascusLocationMixin:
     def _validate_coord(self, value, min_val, max_val, coord_name):
@@ -121,9 +128,10 @@ class ScenarioSerializer(serializers.ModelSerializer):
     end_landfill_id = serializers.PrimaryKeyRelatedField(queryset=Landfill.objects.all(), source='end_landfill', write_only=True)
     bins = BinSerializer(many=True, read_only=True)
     bin_ids = serializers.PrimaryKeyRelatedField(many=True, queryset=Bin.objects.all(), source='bins', write_only=True)
-    created_by = serializers.StringRelatedField(read_only=True)
+    created_by = CreatorSerializer(read_only=True)
     solutions = RouteSolutionSlimSerializer(many=True, read_only=True)
     is_expired = serializers.SerializerMethodField()
+    name = serializers.CharField(required=False, allow_blank=True)
 
     class Meta:
         model = Scenario
@@ -212,15 +220,17 @@ class ScenarioTemplateSerializer(serializers.ModelSerializer):
     end_landfill_id = serializers.PrimaryKeyRelatedField(queryset=Landfill.objects.all(), source='end_landfill', write_only=True)
     bins = BinSerializer(many=True, read_only=True)
     bin_ids = serializers.PrimaryKeyRelatedField(many=True, queryset=Bin.objects.all(), source='bins', write_only=True)
+    created_by = CreatorSerializer(read_only=True)
+    name = serializers.CharField(required=False, allow_blank=True)
 
     class Meta:
         model = ScenarioTemplate
         fields = [
             'id', 'name', 'municipality', 'municipality_id', 'vehicle', 'vehicle_id',
             'end_landfill', 'end_landfill_id', 'bins', 'bin_ids', 'weekdays', 'is_active',
-            'created_at', 'updated_at',
+            'created_at', 'updated_at', 'created_by'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by']
 
     def validate(self, attrs):
         municipality = attrs.get('municipality')
@@ -233,6 +243,22 @@ class ScenarioTemplateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'bins': 'كل الحاويات يجب أن تكون من نفس البلدية.'})
 
         return attrs
+
+    def _auto_name(self, municipality, provided_name: str) -> str:
+        if provided_name:
+            return provided_name
+        count = ScenarioTemplate.objects.filter(municipality=municipality).count() + 1
+        return f"قالب {count} – منطقة {municipality.name}"
+
+    def create(self, validated_data):
+        bins = validated_data.pop('bins')
+        municipality = validated_data.get('municipality')
+        validated_data['name'] = self._auto_name(municipality, validated_data.get('name', ''))
+        # request will be passed in context from ViewSet
+        validated_data['created_by'] = self.context['request'].user
+        template = ScenarioTemplate.objects.create(**validated_data)
+        template.bins.set(bins)
+        return template
 
 
 class RouteSolutionSerializer(serializers.ModelSerializer):

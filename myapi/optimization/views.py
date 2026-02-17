@@ -30,8 +30,9 @@ from .serializers import (
 from .services import VRPSolver
 
 logger = logging.getLogger(__name__)
-from .permissions import IsAdmin, IsAdminOrPlanner, IsPlannerOrAdmin
+from .permissions import IsAdmin, IsAdminOrPlanner, IsPlannerOrAdmin, IsPlanner
 from .pagination import OptimizationPagination
+from django.db.models import Q
 
 
 def _scope_by_creator(qs, request):
@@ -39,9 +40,13 @@ def _scope_by_creator(qs, request):
     if user.is_superuser:
         return qs
     if user.role == user.Roles.ADMIN:
+        # Admin sees items created by them OR by planners they created
+        return qs.filter(Q(created_by=user) | Q(created_by__created_by=user))
+    if user.role == user.Roles.PLANNER:
+        # Planner sees items created by them OR by the Admin who created them
+        if user.created_by_id:
+            return qs.filter(Q(created_by=user) | Q(created_by_id=user.created_by_id))
         return qs.filter(created_by=user)
-    if user.role == user.Roles.PLANNER and user.created_by_id:
-        return qs.filter(created_by_id=user.created_by_id)
     return qs.none()
 
 
@@ -180,18 +185,26 @@ class ScenarioTemplateViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
             return [IsAdminOrPlanner()]
-        return [IsAdmin()]
+        return [IsPlanner()] # Admin is Read-Only for plans
 
     def get_queryset(self):
         qs = ScenarioTemplate.objects.select_related('municipality', 'vehicle', 'end_landfill')
         qs = _scope_by_creator(qs, self.request)
+
+        search = self.request.query_params.get('search')
         municipality_id = self.request.query_params.get('municipality')
+        week_day = self.request.query_params.get('week_day')
+
+        if search:
+            qs = qs.filter(name__icontains=search)
         if municipality_id:
             qs = qs.filter(municipality_id=municipality_id)
+        if week_day is not None and week_day.strip():
+            qs = qs.filter(weekdays__icontains=week_day)
         return qs
 
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        serializer.save()
 
 
 class ScenarioViewSet(viewsets.ModelViewSet):
@@ -199,7 +212,9 @@ class ScenarioViewSet(viewsets.ModelViewSet):
     pagination_class = OptimizationPagination
 
     def get_permissions(self):
-        return [IsPlannerOrAdmin()]
+        if self.action in ['list', 'retrieve']:
+            return [IsPlannerOrAdmin()]
+        return [IsPlanner()] # Admin is Read-Only for plans
 
     def get_queryset(self):
         user = self.request.user
@@ -209,45 +224,32 @@ class ScenarioViewSet(viewsets.ModelViewSet):
             'created_by', 'vehicle', 'municipality', 'end_landfill'
         ).prefetch_related('bins')
 
-        if user.role == user.Roles.PLANNER:
-            qs = qs.filter(created_by=user)
-        elif user.role == user.Roles.ADMIN and not user.is_superuser:
-            qs = qs.filter(created_by__created_by=user)
-        elif user.role not in [user.Roles.ADMIN, user.Roles.PLANNER]:
-            qs = qs.none()
+        qs = _scope_by_creator(qs, self.request)
 
         search = self.request.query_params.get('search')
         is_archived = self.request.query_params.get('is_archived')
         municipality_id = self.request.query_params.get('municipality')
-        collection_date = self.request.query_params.get('collection_date')
         status_filter = self.request.query_params.get('status')
 
         if search:
             qs = qs.filter(name__icontains=search)
         if is_archived == 'true':
-            qs = qs.filter(collection_date__lt=today)
+            qs = qs.filter(status=Scenario.Status.COMPLETED)
         elif is_archived == 'false':
-            qs = qs.filter(collection_date__gte=today)
+            qs = qs.exclude(status=Scenario.Status.COMPLETED)
         if municipality_id:
             qs = qs.filter(municipality_id=municipality_id)
-        if collection_date:
-            qs = qs.filter(collection_date=collection_date)
         if status_filter:
             qs = qs.filter(status=status_filter)
 
         week_day = self.request.query_params.get('week_day')
         if week_day is not None and week_day.strip():
             try:
-                # Mapping from JS getDay() style (if used) or just 0=Mon, 6=Sun
-                # JS 0=Sun, 1=Mon...
-                # My frontend uses ['Mon', 'Tue'...] mapped to index 0..6?
-                # In PlanSideBar: `['الإثنين', ...].map((day, index) => ...)`
-                # So 0=Monday, 1=Tuesday, ..., 6=Sunday.
-                # Django __week_day: 1=Sunday, 2=Monday, ..., 7=Saturday.
-                # Map: 0->2, 1->3, ..., 4->6, 5->7, 6->1.
+                # Saturday Start: 0=Sat, 1=Sun, 2=Mon...
+                # Django __week_day: 1=Sun, 2=Mon, 3=Tue, 4=Wed, 5=Thu, 6=Fri, 7=Sat.
                 wd = int(week_day)
                 django_wd = {
-                    0: 2, 1: 3, 2: 4, 3: 5, 4: 6, 5: 7, 6: 1
+                    0: 7, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6
                 }.get(wd)
                 if django_wd:
                     qs = qs.filter(collection_date__week_day=django_wd)
@@ -257,9 +259,7 @@ class ScenarioViewSet(viewsets.ModelViewSet):
         return qs.order_by('-collection_date', '-created_at')
 
     def perform_create(self, serializer):
-        if self.request.user.role != self.request.user.Roles.PLANNER:
-            raise ValidationError('فقط المخطط يمكنه إنشاء الخطط.')
-        serializer.save(created_by=self.request.user)
+        serializer.save()
 
     def perform_update(self, serializer):
         if self.request.user.role != self.request.user.Roles.PLANNER:
