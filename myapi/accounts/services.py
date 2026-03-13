@@ -24,9 +24,22 @@ class OTPResult:
 
 
 class OTPService:
+    """
+    Manages the full OTP lifecycle: issuance, verification, and expiry.
+
+    Constants:
+        OTP_LENGTH  : Length of the generated code (digits).
+        EXPIRY      : How long an OTP is valid after issuance.
+        COOLDOWN    : Minimum wait before a new OTP can be requested.
+        MAX_ATTEMPTS: Maximum failed verification attempts before lockout.
+
+    Raises:
+        OTPServiceError: On rate-limit, expiry, max-attempt, or invalid code.
+    """
     OTP_LENGTH = 5
     EXPIRY = timedelta(minutes=5)
     COOLDOWN = timedelta(minutes=1)
+    MAX_ATTEMPTS = 5  # Brute-force guard: lock after 5 wrong guesses
 
     @classmethod
     def _latest_otp(cls, user: User, purpose: str) -> Optional[OneTimePassword]:
@@ -65,11 +78,19 @@ class OTPService:
         if not otp:
             raise OTPServiceError("No OTP request found. Please request a new code.")
 
-        otp.attempt_count += 1
-        otp.save(update_fields=["attempt_count"])
-
+        # Check expiry FIRST — expired OTPs should not consume an attempt slot
+        # and must show the correct error (not "Invalid OTP").
         if otp.is_expired():
             raise OTPServiceError("OTP expired. Please request a new code.")
+
+        # Enforce brute-force limit before comparing codes.
+        if otp.attempt_count >= cls.MAX_ATTEMPTS:
+            raise OTPServiceError(
+                "Too many failed attempts. Please request a new code."
+            )
+
+        otp.attempt_count += 1
+        otp.save(update_fields=["attempt_count"])
 
         if otp.code != code:
             raise OTPServiceError("Invalid OTP. Please try again.")

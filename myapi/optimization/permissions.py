@@ -3,40 +3,36 @@ from accounts.models import User
 
 
 class IsAdmin(permissions.BasePermission):
-    """Permission to allow only Admin role."""
-    
+    """Allow only Admin role."""
+
     def has_permission(self, request, view):
         return (
-            request.user.is_authenticated and
-            request.user.role == User.Roles.ADMIN
+            request.user.is_authenticated
+            and request.user.role == User.Roles.ADMIN
         )
 
 
 class IsAdminOrPlanner(permissions.BasePermission):
-    """Permission to allow Admin or Planner roles."""
-    
+    """Allow Admin or Planner roles."""
+
     def has_permission(self, request, view):
         return (
-            request.user.is_authenticated and
-            request.user.role in [User.Roles.ADMIN, User.Roles.PLANNER]
+            request.user.is_authenticated
+            and request.user.role in {User.Roles.ADMIN, User.Roles.PLANNER}
         )
 
 
-class IsPlannerOrAdmin(permissions.BasePermission):
-    """Permission to allow only Planner or Admin roles."""
-    
-    def has_permission(self, request, view):
-        return (
-            request.user.is_authenticated and
-            request.user.role in [User.Roles.PLANNER, User.Roles.ADMIN]
-        )
+# Backward-compatible alias — both names were in use across the codebase.
+# Prefer ``IsAdminOrPlanner`` for new code; ``IsPlannerOrAdmin`` will be
+# removed in a future clean-up pass once all call sites are migrated.
+IsPlannerOrAdmin = IsAdminOrPlanner
 
 
 class IsPlanner(permissions.BasePermission):
-    """Permission to allow only Planner role."""
-    
+    """Allow only Planner role."""
+
     def has_permission(self, request, view):
         return (
-            request.user.is_authenticated and
-            request.user.role == User.Roles.PLANNER
+            request.user.is_authenticated
+            and request.user.role == User.Roles.PLANNER
         )

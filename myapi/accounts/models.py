@@ -60,6 +60,13 @@ class User(AbstractBaseUser, PermissionsMixin):
     role = models.CharField(
         max_length=20, choices=Roles.choices, default=Roles.DRIVER
     )
+    municipality = models.ForeignKey(
+        'optimization.Municipality',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='users',
+    )
     is_active = models.BooleanField(default=False)
     is_staff = models.BooleanField(default=False)
     is_archived = models.BooleanField(default=False)
@@ -117,3 +124,20 @@ class OneTimePassword(models.Model):
     def mark_used(self):
         self.is_used = True
         self.save(update_fields=["is_used"])
+
+class Notification(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name="notifications", on_delete=models.CASCADE
+    )
+    title = models.CharField(max_length=255)
+    message = models.TextField()
+    is_read = models.BooleanField(default=False)
+    type = models.CharField(max_length=50, blank=True, null=True)
+    related_id = models.IntegerField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Notification for {self.user}: {self.title}"

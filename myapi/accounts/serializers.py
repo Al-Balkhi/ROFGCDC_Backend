@@ -2,7 +2,7 @@ from django.contrib.auth import password_validation
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
-from .models import OneTimePassword, User
+from .models import OneTimePassword, User, Notification
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -138,3 +138,9 @@ class ConfirmInitialSetupSerializer(serializers.Serializer):
         password_validation.validate_password(attrs["password"])
         return attrs
 
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = ["id", "user", "title", "message", "is_read", "type", "related_id", "created_at"]
+        read_only_fields = ["id", "user", "created_at"]

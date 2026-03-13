@@ -1,26 +1,16 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+from django.views.decorators.csrf import ensure_csrf_cookie
+from django.utils.decorators import method_decorator
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
-from django.views.decorators.csrf import ensure_csrf_cookie
-from django.http import JsonResponse
-from django.utils.decorators import method_decorator
-from users.permissions import IsAdminRole
-
-@method_decorator(ensure_csrf_cookie, name='dispatch')
-class CSRFView(APIView):
-    permission_classes = [permissions.AllowAny]
-
-    def get(self, request):
-        return Response({"detail": "CSRF cookie set"})
-
 
 from .authentication import CookieJWTAuthentication
-from .models import OneTimePassword
+from .models import Notification, OneTimePassword
 from .serializers import (
     ActivityLogSerializer,
     ChangePasswordSerializer,
@@ -33,8 +23,23 @@ from .serializers import (
     UserSerializer,
 )
 from .services import OTPService, OTPServiceError
+from users.permissions import IsAdminRole
+
+# Optimization models are imported here (not inside the view method).
+# accounts -> optimization is safe: optimization imports from accounts but
+# only touches the AUTH_USER_MODEL string, so there is no circular import.
+from optimization.models import Bin, Municipality, Vehicle
 
 User = get_user_model()
+
+@method_decorator(ensure_csrf_cookie, name='dispatch')
+class CSRFView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        return Response({"detail": "CSRF cookie set"})
+
+
 
 
 def _set_jwt_cookies(response: Response, refresh: RefreshToken):
@@ -284,34 +289,18 @@ class AdminStatsView(APIView):
 
     def get(self, request):
         user = request.user
-        
-        # Base querysets
-        users_qs = User.objects.filter(is_staff=False, is_active=True, is_archived=False)
-        
-        try:
-            from optimization.models import Vehicle, Bin, Municipality
-            vehicles_qs = Vehicle.objects.all()
-            bins_qs = Bin.objects.filter(is_active=True)
-            municipality_qs = Municipality.objects.all()
-        except ImportError:
-            vehicles_qs = users_qs.none()
-            bins_qs = users_qs.none()
-            municipality_qs = users_qs.none()
 
-        # Filter if not superuser
+        users_qs = User.objects.filter(is_staff=False, is_active=True, is_archived=False)
+        vehicles_qs = Vehicle.objects.all()
+        bins_qs = Bin.objects.filter(is_active=True)
+        municipality_qs = Municipality.objects.all()
+
+        # Superusers see everything; regular admins see only what they created.
         if not user.is_superuser:
-            # For users: show users created by this admin
             users_qs = users_qs.filter(created_by=user)
-            
-            # For optimization objects: show objects created by this admin
-            if vehicles_qs.count() > 0:
-                vehicles_qs = vehicles_qs.filter(created_by=user)
-            
-            if bins_qs.count() > 0:
-                bins_qs = bins_qs.filter(created_by=user)
-                
-            if municipality_qs.count() > 0:
-                municipality_qs = municipality_qs.filter(created_by=user)
+            vehicles_qs = vehicles_qs.filter(created_by=user)
+            bins_qs = bins_qs.filter(created_by=user)
+            municipality_qs = municipality_qs.filter(created_by=user)
 
         return Response({
             'users_active': users_qs.count(),
@@ -319,3 +308,4 @@ class AdminStatsView(APIView):
             'bins_active': bins_qs.count(),
             'municipality_total': municipality_qs.count(),
         })
+

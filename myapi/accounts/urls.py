@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import path, include
 
 from .views import (
     ActivityLogView,
@@ -13,6 +13,11 @@ from .views import (
     ProfileView,
     RefreshTokenView,
 )
+from .notification_views import NotificationViewSet
+from rest_framework.routers import DefaultRouter
+
+router = DefaultRouter()
+router.register(r'notifications', NotificationViewSet, basename='notifications')
 
 urlpatterns = [
     path("auth/login/", LoginView.as_view(), name="auth-login"),
@@ -42,4 +47,5 @@ urlpatterns = [
     path("profile/password/", ChangePasswordView.as_view(), name="profile-password"),
     path("admin/activity-log/", ActivityLogView.as_view(), name="activity-log"),
     path("admin/stats/", AdminStatsView.as_view(), name="admin-stats"),
+    path("", include(router.urls)),
 ]

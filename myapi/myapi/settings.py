@@ -33,27 +33,34 @@ if not SECRET_KEY:
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
-# Dynamic CORS - Do not hardcode localhost
+# Only allow explicitly listed origins. CORS_ALLOW_ALL_ORIGINS must be False
+# when CORS_ALLOW_CREDENTIALS=True, otherwise the browser rejects credentialed
+# cross-origin responses (and any origin could access the API).
+CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:5173').split(',')
 
 
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',
     'corsheaders',
     'rest_framework',
     'rest_framework_simplejwt.token_blacklist',
     'accounts.apps.AccountsConfig',
     'users.apps.UsersConfig',
     'optimization.apps.OptimizationConfig',
+    'reports.apps.ReportsConfig',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.gis',
+    'channels',
 ]
 
 MIDDLEWARE = [
@@ -84,7 +91,26 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'myapi.wsgi.application'
+ASGI_APPLICATION = 'myapi.asgi.application'
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": [(os.getenv('REDIS_HOST', 'localhost'), int(os.getenv('REDIS_PORT', 6379)))],
+        },
+    },
+}
+
+# Caching Configuration
+# DRF Throttling uses the default cache backend. We are directing it to use Redis 
+# to keep rate-limiting state centralized and persistent across multiple workers.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": f"redis://{os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', 6379)}/1",
+    }
+}
 
 AUTH_USER_MODEL = 'accounts.User'
 
@@ -97,6 +123,15 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle'
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '100/day',
+        'user': '1000/day',
+        'report_submit': '3/m', # Allow 3 requests per minute for report submissions
+    }
 }
 
 SIMPLE_JWT = {
@@ -117,7 +152,7 @@ SIMPLE_JWT = {
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
+        'ENGINE': 'django.contrib.gis.db.backends.postgis',
         'NAME': os.getenv('DB_NAME', 'ROFGCIDC'),
         'USER': os.getenv('DB_USER', 'postgres'),
         'PASSWORD': os.getenv('DB_PASSWORD'),
@@ -162,6 +197,8 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+# STATIC_ROOT is required by `collectstatic` for production deployments.
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
@@ -183,18 +220,32 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CORS_ALLOW_CREDENTIALS = True
 
 # CSRF configuration
-# Auto-set based on DEBUG, but allow override via environment variable
-CSRF_COOKIE_SECURE = os.getenv('CSRF_COOKIE_SECURE', 'True' if not DEBUG else 'False').lower() == 'true'
-CSRF_COOKIE_HTTPONLY = True
-CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
+# Auto-set based on DEBUG mode, but can be overridden via environment variable.
+CSRF_COOKIE_SECURE = os.getenv('CSRF_COOKIE_SECURE', str(not DEBUG)).lower() == 'true'
+# CSRF_COOKIE_HTTPONLY must be False so the frontend JS can read the csrftoken
+# cookie and include it as the X-CSRFToken request header — the standard Django
+# CSRF protection pattern for SPA frontends.
+CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 
 # Session cookie configuration
-# Auto-set based on DEBUG, but allow override via environment variable
-SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'True' if not DEBUG else 'False').lower() == 'true'
-CSRF_COOKIE_HTTPONLY = False  
-CSRF_COOKIE_SAMESITE = 'Lax'
-CSRF_COOKIE_SECURE = False  
+# Auto-set based on DEBUG mode, but can be overridden via environment variable.
+SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', str(not DEBUG)).lower() == 'true'
 
 # OSRM Configuration
 OSRM_BASE_URL = os.getenv('OSRM_BASE_URL', 'http://localhost:5000')
+
+if os.name == 'nt':
+    
+    OSGEO4W_DIR = os.getenv('OSGEO4W_DIR')
+    
+    if OSGEO4W_DIR:
+        
+        gdal_dll = os.getenv('GDAL_DLL_NAME', 'gdal312.dll')
+        
+        GDAL_LIBRARY_PATH = os.path.join(OSGEO4W_DIR, 'bin', gdal_dll) 
+        GEOS_LIBRARY_PATH = os.path.join(OSGEO4W_DIR, 'bin', 'geos_c.dll')
+        
+        os.environ['GDAL_DATA'] = os.path.join(OSGEO4W_DIR, 'share', 'gdal')
+        os.environ['PROJ_LIB'] = os.path.join(OSGEO4W_DIR, 'share', 'proj')

@@ -1,6 +1,10 @@
 from datetime import timedelta
+
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
+from django.contrib.gis.geos import Point
 from rest_framework import serializers
+
 from accounts.models import User
 from .models import (
     Bin,
@@ -12,9 +16,12 @@ from .models import (
     ScenarioTemplate,
 )
 from .validators import (
-    DAMASCUS_LAT_MIN, DAMASCUS_LAT_MAX,
-    DAMASCUS_LON_MIN, DAMASCUS_LON_MAX
+    DAMASCUS_LAT_MIN,
+    DAMASCUS_LAT_MAX,
+    DAMASCUS_LON_MIN,
+    DAMASCUS_LON_MAX,
 )
+from .mixins import GeoPointSerializerMixin
 
 class CreatorSerializer(serializers.ModelSerializer):
     admin_name = serializers.CharField(source='created_by.username', read_only=True, default=None)
@@ -27,7 +34,7 @@ class DamascusLocationMixin:
     def _validate_coord(self, value, min_val, max_val, coord_name):
         if value is not None and (value < min_val or value > max_val):
             raise serializers.ValidationError(
-                f'الإحداثيات خارج حدود مدينة دمشق. {coord_name} يجب أن يكون بين {min_val} و {max_val}'
+                _(f'الإحداثيات خارج حدود مدينة دمشق. {coord_name} يجب أن يكون بين {min_val} و {max_val}')
             )
         return value
 
@@ -50,47 +57,95 @@ class DamascusLocationMixin:
         return self.validate_longitude(value)
 
 
-class MunicipalitySerializer(DamascusLocationMixin, serializers.ModelSerializer):
+class MunicipalitySerializer(DamascusLocationMixin, GeoPointSerializerMixin, serializers.ModelSerializer):
+    # Override mixin defaults to match this model's field naming.
+    _lat_field   = 'hq_latitude'
+    _lon_field   = 'hq_longitude'
+    _point_field = 'hq_location'
+
     created_by = serializers.StringRelatedField(read_only=True)
+    hq_latitude = serializers.FloatField(required=False, allow_null=True)
+    hq_longitude = serializers.FloatField(required=False, allow_null=True)
+    planner = CreatorSerializer(read_only=True)
+    planner_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(role=User.Roles.PLANNER),
+        source='planner',
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
 
     class Meta:
         model = Municipality
-        fields = ['id', 'name', 'hq_latitude', 'hq_longitude', 'created_by']
-        read_only_fields = ['id', 'created_by']
+        fields = [
+            'id',
+            'name',
+            'hq_latitude',
+            'hq_longitude',
+            'created_by',
+            'planner',
+            'planner_id',
+        ]
+        read_only_fields = ['id', 'created_by', 'planner']
+
+    def validate(self, attrs):
+        """
+        Admin can only assign planners they created (unless superuser).
+        """
+        request = self.context.get('request')
+        if not request:
+            return attrs
+
+        requester = request.user
+        planner = attrs.get('planner')
+        if planner and (not requester.is_superuser) and planner.created_by_id != requester.id:
+            raise serializers.ValidationError({'planner_id': _('لا يمكنك تعيين مخطط لم تقم بإنشائه.')})
+
+        return attrs
+    # create() and update() are handled by GeoPointSerializerMixin ✓
 
 
-class LandfillSerializer(DamascusLocationMixin, serializers.ModelSerializer):
+class LandfillSerializer(DamascusLocationMixin, GeoPointSerializerMixin, serializers.ModelSerializer):
+    # Default mixin fields (latitude / longitude / location) match this model.
     municipalities = MunicipalitySerializer(many=True, read_only=True)
     municipality_ids = serializers.PrimaryKeyRelatedField(
         many=True, queryset=Municipality.objects.all(), source='municipalities',
         write_only=True, required=False,
     )
-
     created_by = serializers.StringRelatedField(read_only=True)
+    latitude = serializers.FloatField(required=False, allow_null=True)
+    longitude = serializers.FloatField(required=False, allow_null=True)
 
     class Meta:
         model = Landfill
         fields = ['id', 'name', 'latitude', 'longitude', 'municipalities', 'municipality_ids', 'created_by']
         read_only_fields = ['id', 'created_by']
+    # create() and update() are handled by GeoPointSerializerMixin ✓
 
 
-class BinSerializer(DamascusLocationMixin, serializers.ModelSerializer):
+class BinSerializer(DamascusLocationMixin, GeoPointSerializerMixin, serializers.ModelSerializer):
+    # Default mixin fields (latitude / longitude / location) match this model.
     municipality = MunicipalitySerializer(read_only=True)
     municipality_id = serializers.PrimaryKeyRelatedField(
         queryset=Municipality.objects.all(), source='municipality',
         write_only=True,
     )
-
     created_by = serializers.StringRelatedField(read_only=True)
+    latitude = serializers.FloatField(required=False)
+    longitude = serializers.FloatField(required=False)
 
     class Meta:
         model = Bin
         fields = ['id', 'name', 'latitude', 'longitude', 'capacity', 'is_active',
                   'municipality', 'municipality_id', 'created_at', 'updated_at', 'created_by']
         read_only_fields = ['id', 'created_at', 'updated_at', 'created_by']
+    # create() and update() are handled by GeoPointSerializerMixin ✓
 
 
 class BinAvailableSerializer(serializers.ModelSerializer):
+    latitude = serializers.ReadOnlyField()
+    longitude = serializers.ReadOnlyField()
+
     class Meta:
         model = Bin
         fields = ['id', 'name', 'latitude', 'longitude', 'capacity']
@@ -119,7 +174,12 @@ class RouteSolutionSlimSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
 
-class ScenarioSerializer(serializers.ModelSerializer):
+class ScenarioSerializer(DamascusLocationMixin, GeoPointSerializerMixin, serializers.ModelSerializer):
+    # Override mixin defaults to match Scenario's start-location field names.
+    _lat_field   = 'start_latitude'
+    _lon_field   = 'start_longitude'
+    _point_field = 'start_location'
+
     municipality = MunicipalitySerializer(read_only=True)
     municipality_id = serializers.PrimaryKeyRelatedField(queryset=Municipality.objects.all(), source='municipality', write_only=True)
     vehicle = VehicleSerializer(read_only=True)
@@ -132,6 +192,8 @@ class ScenarioSerializer(serializers.ModelSerializer):
     solutions = RouteSolutionSlimSerializer(many=True, read_only=True)
     is_expired = serializers.SerializerMethodField()
     name = serializers.CharField(required=False, allow_blank=True)
+    start_latitude = serializers.FloatField(required=False, allow_null=True)
+    start_longitude = serializers.FloatField(required=False, allow_null=True)
 
     class Meta:
         model = Scenario
@@ -150,9 +212,9 @@ class ScenarioSerializer(serializers.ModelSerializer):
     def validate_collection_date(self, value):
         today = timezone.localdate()
         if value < today:
-            raise serializers.ValidationError('لا يمكن تحديد تاريخ في الماضي.')
+            raise serializers.ValidationError(_('لا يمكن تحديد تاريخ في الماضي.'))
         if value > today + timedelta(days=180):
-            raise serializers.ValidationError('يمكن تحديد موعد ضمن ستة أشهر فقط.')
+            raise serializers.ValidationError(_('يمكن تحديد موعد ضمن ستة أشهر فقط.'))
         return value
 
     def validate(self, attrs):
@@ -161,35 +223,35 @@ class ScenarioSerializer(serializers.ModelSerializer):
 
         end_landfill = attrs.get('end_landfill') or getattr(self.instance, 'end_landfill', None)
         if not end_landfill:
-            raise serializers.ValidationError({'end_landfill': 'يجب تحديد المدفن النهائي للخطة.'})
+            raise serializers.ValidationError({'end_landfill': _('يجب تحديد المدفن النهائي للخطة.')})
 
         if vehicle and municipality and vehicle.municipality_id != municipality.id:
-            raise serializers.ValidationError({'vehicle': 'المركبة يجب أن تتبع لنفس البلدية.'})
+            raise serializers.ValidationError({'vehicle': _('المركبة يجب أن تتبع لنفس البلدية.')})
 
         bins = attrs.get('bins')
         if bins is not None:
             if not bins:
-                raise serializers.ValidationError({'bins': 'يجب اختيار حاوية واحدة على الأقل.'})
+                raise serializers.ValidationError({'bins': _('يجب اختيار حاوية واحدة على الأقل.')})
             inactive = [b.name for b in bins if not b.is_active]
             if inactive:
-                raise serializers.ValidationError({'bins': f'الحاويات التالية غير نشطة: {", ".join(inactive)}'})
+                raise serializers.ValidationError({'bins': _('الحاويات التالية غير نشطة: %(names)s') % {'names': ', '.join(inactive)}})
 
             if municipality and any(b.municipality_id != municipality.id for b in bins):
-                raise serializers.ValidationError({'bins': 'كل الحاويات يجب أن تكون ضمن نفس البلدية.'})
+                raise serializers.ValidationError({'bins': _('كل الحاويات يجب أن تكون ضمن نفس البلدية.')})
 
         collection_date = attrs.get('collection_date') or getattr(self.instance, 'collection_date', None)
         if vehicle and collection_date:
             exclude_args = {'pk': self.instance.pk} if self.instance else {}
             in_use = Scenario.objects.filter(vehicle=vehicle, collection_date=collection_date).exclude(**exclude_args).exists()
             if in_use:
-                raise serializers.ValidationError({'vehicle': 'المركبة مستخدمة في خطة أخرى في نفس التاريخ.'})
+                raise serializers.ValidationError({'vehicle': _('المركبة مستخدمة في خطة أخرى في نفس التاريخ.')})
 
         start_lat = attrs.get('start_latitude')
         start_lon = attrs.get('start_longitude')
         if vehicle and start_lat is None:
             start_lat, start_lon = vehicle.municipality.hq_latitude, vehicle.municipality.hq_longitude
             if start_lat is None or start_lon is None:
-                raise serializers.ValidationError({'vehicle': 'بلدية المركبة لا تملك إحداثيات مركز (HQ).'})
+                raise serializers.ValidationError({'vehicle': _('بلدية المركبة لا تملك إحداثيات مركز (HQ).')})
 
         attrs['start_latitude'] = start_lat
         attrs['start_longitude'] = start_lon
@@ -203,12 +265,23 @@ class ScenarioSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         bins = validated_data.pop('bins')
+        # Convert start_latitude/start_longitude → start_location Point via mixin helper.
+        self._build_point(validated_data)
+
         municipality = validated_data.get('municipality')
         validated_data['name'] = self._auto_name(municipality, validated_data.get('name', ''))
         validated_data['created_by'] = self.context['request'].user
+
         scenario = Scenario.objects.create(**validated_data)
         scenario.bins.set(bins)
         return scenario
+
+    def update(self, instance, validated_data):
+        # Convert start_latitude/start_longitude → start_location Point via mixin helper.
+        self._build_point(validated_data)
+        if self._point_field in validated_data:
+            instance.start_location = validated_data.pop(self._point_field)
+        return super().update(instance, validated_data)
 
 
 class ScenarioTemplateSerializer(serializers.ModelSerializer):
@@ -238,9 +311,9 @@ class ScenarioTemplateSerializer(serializers.ModelSerializer):
         bins = attrs.get('bins')
 
         if municipality and vehicle and vehicle.municipality_id != municipality.id:
-            raise serializers.ValidationError({'vehicle': 'المركبة يجب أن تتبع نفس البلدية.'})
+            raise serializers.ValidationError({'vehicle': _('المركبة يجب أن تتبع نفس البلدية.')})
         if bins and municipality and any(b.municipality_id != municipality.id for b in bins):
-            raise serializers.ValidationError({'bins': 'كل الحاويات يجب أن تكون من نفس البلدية.'})
+            raise serializers.ValidationError({'bins': _('كل الحاويات يجب أن تكون من نفس البلدية.')})
 
         return attrs
 

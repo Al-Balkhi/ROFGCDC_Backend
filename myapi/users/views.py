@@ -19,6 +19,29 @@ from .pagination import UserPagination
 
 User = get_user_model()
 
+# Mapping for query-param boolean strings, shared by the filter helper below.
+_BOOL_MAP = {"true": True, "1": True, "yes": True, "false": False, "0": False, "no": False}
+
+
+def _apply_common_filters(queryset, request):
+    """
+    Apply role and is_active list-filters from query params to a user queryset.
+    Both params accept multiple values:
+        ?role=driver&role=planner
+        ?is_active=true&is_active=false
+    """
+    roles = request.query_params.getlist("role")
+    if roles:
+        queryset = queryset.filter(role__in=roles)
+
+    status_list = request.query_params.getlist("is_active")
+    if status_list:
+        parsed = [_BOOL_MAP[s.lower()] for s in status_list if s.lower() in _BOOL_MAP]
+        if parsed:
+            queryset = queryset.filter(is_active__in=parsed)
+
+    return queryset
+
 
 class UserViewSet(viewsets.ModelViewSet):
     """
@@ -35,9 +58,9 @@ class UserViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """
         Return queryset filtered by request parameters.
-        By default, excludes archived users unless explicitly requested.
-        For the 'restore' action, include archived users so they can be restored.
-        Optimized search: only applies search for queries with at least 2 characters.
+        By default excludes archived users unless explicitly requested.
+        For the 'restore' action, archived users are included so they can be
+        found and restored.  Search is only applied for queries >= 2 chars.
         """
         queryset = User.objects.filter(is_staff=False)
         requester = self.request.user
@@ -45,40 +68,19 @@ class UserViewSet(viewsets.ModelViewSet):
         if not requester.is_superuser:
             queryset = queryset.filter(created_by=requester)
 
-        # Apply search filter first, before other filters
-        # Minimum 2 characters to prevent expensive queries on short inputs
+        # Minimum 2 characters to avoid expensive queries on very short inputs.
         search = self.request.query_params.get("search", "").strip()
         if search and len(search) >= 2:
             queryset = queryset.filter(username__icontains=search)
 
-        # For restore, don't apply the default is_archived=False filter
+        # For restore: include archived users; skip the default is_archived=False.
         if getattr(self, "action", None) == "restore":
-            # Still allow explicit query param filters if you want
-            roles = self.request.query_params.getlist("role")
-            if roles:
-                queryset = queryset.filter(role__in=roles)
-
-            status_list = self.request.query_params.getlist("is_active")
-            if status_list:
-                bool_map = {"true": True, "1": True, "false": False, "0": False}
-                parsed = [bool_map.get(s.lower()) for s in status_list if s.lower() in bool_map]
-                if parsed:
-                    queryset = queryset.filter(is_active__in=parsed)
-
-            # IMPORTANT: no default is_archived filter here
+            queryset = _apply_common_filters(queryset, self.request)
+            # IMPORTANT: no default is_archived filter for the restore action.
             return queryset.order_by("-date_joined")
 
-        # Existing logic for all other actions
-        roles = self.request.query_params.getlist("role")
-        if roles:
-            queryset = queryset.filter(role__in=roles)
-
-        status_list = self.request.query_params.getlist("is_active")
-        if status_list:
-            bool_map = {"true": True, "1": True, "false": False, "0": False}
-            parsed = [bool_map.get(s.lower()) for s in status_list if s.lower() in bool_map]
-            if parsed:
-                queryset = queryset.filter(is_active__in=parsed)
+        # All other actions: apply role/status filters then archived default.
+        queryset = _apply_common_filters(queryset, self.request)
 
         is_archived = self.request.query_params.get("is_archived", None)
         if is_archived is not None:
@@ -117,22 +119,18 @@ class UserViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Create user with unusable password and inactive status
+        # Create user with unusable password and inactive status.
+        # create_user(password=None) calls set_unusable_password() and sets
+        # is_active=False automatically via UserManager — no extra save needed.
         user = User.objects.create_user(
             email=serializer.validated_data["email"],
-            password=None,  # This triggers set_unusable_password() and is_active=False
+            password=None,
             username=serializer.validated_data["username"],
             role=role,
             phone=serializer.validated_data.get("phone", ""),
             image_profile=serializer.validated_data.get("image_profile"),
             created_by=request.user,
         )
-
-        # Ensure is_active is False (should already be set by create_user)
-        user.is_active = False
-        user.save(update_fields=["is_active"])
-
-
 
         # Return created user details
         response_serializer = UserDetailSerializer(user)

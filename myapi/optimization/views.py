@@ -1,12 +1,13 @@
 from datetime import timedelta, datetime
 import logging
 
-from rest_framework import viewsets, status, permissions
-from rest_framework.response import Response
-from rest_framework.views import APIView
-from django.core.exceptions import ValidationError
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
+from rest_framework import viewsets, status, permissions
+from rest_framework.exceptions import ValidationError as DRFValidationError
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from .models import (
     Bin,
@@ -17,6 +18,9 @@ from .models import (
     Landfill,
     ScenarioTemplate,
 )
+from .mixins import CreatorScopedViewSetMixin
+from .pagination import OptimizationPagination
+from .permissions import IsAdmin, IsAdminOrPlanner, IsPlannerOrAdmin, IsPlanner
 from .serializers import (
     BinSerializer,
     VehicleSerializer,
@@ -30,27 +34,9 @@ from .serializers import (
 from .services import VRPSolver
 
 logger = logging.getLogger(__name__)
-from .permissions import IsAdmin, IsAdminOrPlanner, IsPlannerOrAdmin, IsPlanner
-from .pagination import OptimizationPagination
-from django.db.models import Q
 
 
-def _scope_by_creator(qs, request):
-    user = request.user
-    if user.is_superuser:
-        return qs
-    if user.role == user.Roles.ADMIN:
-        # Admin sees items created by them OR by planners they created
-        return qs.filter(Q(created_by=user) | Q(created_by__created_by=user))
-    if user.role == user.Roles.PLANNER:
-        # Planner sees items created by them OR by the Admin who created them
-        if user.created_by_id:
-            return qs.filter(Q(created_by=user) | Q(created_by_id=user.created_by_id))
-        return qs.filter(created_by=user)
-    return qs.none()
-
-
-class BinViewSet(viewsets.ModelViewSet):
+class BinViewSet(CreatorScopedViewSetMixin, viewsets.ModelViewSet):
     queryset = Bin.objects.all()
     serializer_class = BinSerializer
     permission_classes = [IsAdmin]
@@ -64,13 +50,13 @@ class BinViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         is_map_view = self.request.query_params.get('map_view') == 'true'
         user = self.request.user
-        
+
         # If map view and user is admin/superuser, show all assets
         if is_map_view and (user.is_superuser or user.role == user.Roles.ADMIN):
-             qs = self.queryset
+            qs = self.queryset
         else:
-             qs = _scope_by_creator(super().get_queryset(), self.request)
-             
+            qs = self.scope_by_creator(super().get_queryset())
+
         municipality_id = self.request.query_params.get('municipality')
         if municipality_id:
             qs = qs.filter(municipality_id=municipality_id)
@@ -80,7 +66,7 @@ class BinViewSet(viewsets.ModelViewSet):
         serializer.save(created_by=self.request.user)
 
 
-class MunicipalityViewSet(viewsets.ModelViewSet):
+class MunicipalityViewSet(CreatorScopedViewSetMixin, viewsets.ModelViewSet):
     queryset = Municipality.objects.all().prefetch_related('landfills')
     serializer_class = MunicipalitySerializer
     permission_classes = [IsAdmin]
@@ -96,9 +82,13 @@ class MunicipalityViewSet(viewsets.ModelViewSet):
         user = self.request.user
 
         if is_map_view and (user.is_superuser or user.role == user.Roles.ADMIN):
-             qs = self.queryset
+            qs = self.queryset
         else:
-             qs = _scope_by_creator(super().get_queryset(), self.request)
+            qs = self.scope_by_creator(super().get_queryset())
+
+            # Further scope for planners: only municipalities they are assigned to
+            if user.role == user.Roles.PLANNER:
+                qs = qs.filter(planner=user)
 
         municipality_id = self.request.query_params.get('municipality')
         if municipality_id:
@@ -109,7 +99,7 @@ class MunicipalityViewSet(viewsets.ModelViewSet):
         serializer.save(created_by=self.request.user)
 
 
-class LandfillViewSet(viewsets.ModelViewSet):
+class LandfillViewSet(CreatorScopedViewSetMixin, viewsets.ModelViewSet):
     queryset = Landfill.objects.all().prefetch_related('municipalities')
     serializer_class = LandfillSerializer
     permission_classes = [IsAdmin]
@@ -125,9 +115,9 @@ class LandfillViewSet(viewsets.ModelViewSet):
         user = self.request.user
 
         if is_map_view and (user.is_superuser or user.role == user.Roles.ADMIN):
-             qs = self.queryset
+            qs = self.queryset
         else:
-             qs = _scope_by_creator(super().get_queryset(), self.request)
+            qs = self.scope_by_creator(super().get_queryset())
 
         municipality_id = self.request.query_params.get('municipality')
         if municipality_id:
@@ -138,7 +128,7 @@ class LandfillViewSet(viewsets.ModelViewSet):
         serializer.save(created_by=self.request.user)
 
 
-class VehicleViewSet(viewsets.ModelViewSet):
+class VehicleViewSet(CreatorScopedViewSetMixin, viewsets.ModelViewSet):
     queryset = Vehicle.objects.all()
     serializer_class = VehicleSerializer
     permission_classes = [IsAdmin]
@@ -150,7 +140,7 @@ class VehicleViewSet(viewsets.ModelViewSet):
         return super().get_permissions()
 
     def get_queryset(self):
-        qs = _scope_by_creator(super().get_queryset(), self.request)
+        qs = self.scope_by_creator(super().get_queryset())
         user = self.request.user
         municipality_id = self.request.query_params.get('municipality')
 
@@ -178,7 +168,7 @@ class VehicleViewSet(viewsets.ModelViewSet):
         serializer.save(created_by=self.request.user)
 
 
-class ScenarioTemplateViewSet(viewsets.ModelViewSet):
+class ScenarioTemplateViewSet(CreatorScopedViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ScenarioTemplateSerializer
     pagination_class = OptimizationPagination
 
@@ -189,7 +179,12 @@ class ScenarioTemplateViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = ScenarioTemplate.objects.select_related('municipality', 'vehicle', 'end_landfill')
-        qs = _scope_by_creator(qs, self.request)
+        qs = self.scope_by_creator(qs)
+
+        # For planners, restrict to their assigned municipalities
+        user = self.request.user
+        if user.role == user.Roles.PLANNER:
+            qs = qs.filter(municipality__planner=user)
 
         search = self.request.query_params.get('search')
         municipality_id = self.request.query_params.get('municipality')
@@ -207,7 +202,7 @@ class ScenarioTemplateViewSet(viewsets.ModelViewSet):
         serializer.save()
 
 
-class ScenarioViewSet(viewsets.ModelViewSet):
+class ScenarioViewSet(CreatorScopedViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ScenarioSerializer
     pagination_class = OptimizationPagination
 
@@ -224,7 +219,11 @@ class ScenarioViewSet(viewsets.ModelViewSet):
             'created_by', 'vehicle', 'municipality', 'end_landfill'
         ).prefetch_related('bins')
 
-        qs = _scope_by_creator(qs, self.request)
+        qs = self.scope_by_creator(qs)
+
+        # For planners, restrict to their assigned municipalities
+        if user.role == user.Roles.PLANNER:
+            qs = qs.filter(municipality__planner=user)
 
         search = self.request.query_params.get('search')
         is_archived = self.request.query_params.get('is_archived')
@@ -262,13 +261,15 @@ class ScenarioViewSet(viewsets.ModelViewSet):
         serializer.save()
 
     def perform_update(self, serializer):
+        # Use DRF's ValidationError (not Django's) so DRF catches it
+        # and returns HTTP 400 with a JSON body instead of a 500.
         if self.request.user.role != self.request.user.Roles.PLANNER:
-            raise ValidationError('فقط المخطط يمكنه تعديل الخطط.')
+            raise DRFValidationError(_('فقط المخطط يمكنه تعديل الخطط.'))
         serializer.save()
 
     def perform_destroy(self, instance):
         if self.request.user.role != self.request.user.Roles.PLANNER:
-            raise ValidationError('فقط المخطط يمكنه حذف الخطط.')
+            raise DRFValidationError(_('فقط المخطط يمكنه حذف الخطط.'))
         instance.delete()
 
 
@@ -279,7 +280,7 @@ class SolveScenarioView(APIView):
         scenario = get_object_or_404(Scenario, pk=pk)
 
         if request.user.role == request.user.Roles.PLANNER and scenario.created_by != request.user:
-            return Response({"detail": "لا تملك صلاحية تعديل هذه الخطة."}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"detail": _("لا تملك صلاحية تعديل هذه الخطة.")}, status=status.HTTP_403_FORBIDDEN)
 
         try:
             scenario.status = Scenario.Status.IN_PROGRESS
@@ -290,7 +291,7 @@ class SolveScenarioView(APIView):
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             logger.error(f"Unexpected error solving scenario {scenario.id}: {str(e)}", exc_info=True)
-            return Response({"detail": "حدث خطأ غير متوقع أثناء المعالجة."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"detail": _("حدث خطأ غير متوقع أثناء المعالجة.")}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class AvailableBinList(APIView):
