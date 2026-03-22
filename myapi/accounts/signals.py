@@ -15,8 +15,8 @@ def notification_created(sender, instance, created, **kwargs):
                 "type": "send_notification",
                 "message": {
                     "id": instance.id,
-                    "title": instance.title,
-                    "message": instance.message,
+                    "title": str(instance.title),
+                    "message": str(instance.message),
                     "is_read": instance.is_read,
                     "type": instance.type,
                     "related_id": instance.related_id,

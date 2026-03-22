@@ -45,6 +45,8 @@ class Command(BaseCommand):
                 collection_date=today,
                 created_by=template.created_by,
                 generated_from_template=template,
+                use_traffic_profile=template.use_traffic_profile,
+                avoid_streets=template.avoid_streets,
             )
             scenario.bins.set(template.bins.all())
             

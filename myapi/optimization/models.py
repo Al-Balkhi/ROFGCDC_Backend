@@ -7,6 +7,7 @@ from .validators import validate_damascus_latitude, validate_damascus_longitude
 class Municipality(models.Model):
     name = models.CharField(max_length=255, unique=True)
     hq_location = models.PointField(null=True, blank=True, geography=True)
+    address = models.CharField(max_length=500, blank=True, null=True, help_text='العنوان أو الوصف')
 
     planner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -43,6 +44,7 @@ class Municipality(models.Model):
 class Landfill(models.Model):
     name = models.CharField(max_length=255)
     location = models.PointField(geography=True)
+    address = models.CharField(max_length=500, blank=True, null=True, help_text='العنوان أو الوصف')
     
     @property
     def latitude(self):
@@ -95,6 +97,9 @@ class Bin(models.Model):
         choices=CAPACITY_CHOICES
     )
     is_active = models.BooleanField(default=True)
+    pickup_window_start = models.TimeField(null=True, blank=True, help_text='بداية نافذة الاستلام')
+    pickup_window_end   = models.TimeField(null=True, blank=True, help_text='نهاية نافذة الاستلام')
+    address = models.CharField(max_length=500, blank=True, null=True, help_text='العنوان أو الوصف')
 
     municipality = models.ForeignKey(
         Municipality,
@@ -203,6 +208,8 @@ class Scenario(models.Model):
         choices=Status.choices,
         default=Status.PENDING,
     )
+    use_traffic_profile = models.BooleanField(default=False, help_text='استخدام ملف مروري')
+    avoid_streets = models.TextField(blank=True, default='', help_text='شوارع يجب تجنبها (مفصولة بفاصلة)')
     generated_from_template = models.ForeignKey(
         'ScenarioTemplate',
         on_delete=models.CASCADE,
@@ -245,6 +252,12 @@ class RouteSolution(models.Model):
     total_distance = models.FloatField(
         validators=[MinValueValidator(0.0)]
     )
+    total_time = models.FloatField(
+        validators=[MinValueValidator(0.0)], default=0.0
+    )
+    co2_kg = models.FloatField(
+        validators=[MinValueValidator(0.0)], default=0.0
+    )
     data = models.JSONField()
 
     class Meta:
@@ -279,6 +292,8 @@ class ScenarioTemplate(models.Model):
         max_length=20,
         help_text='Comma separated weekdays numbers where Monday=0 and Sunday=6',
     )
+    use_traffic_profile = models.BooleanField(default=False)
+    avoid_streets = models.TextField(blank=True, default='')
     is_active = models.BooleanField(default=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

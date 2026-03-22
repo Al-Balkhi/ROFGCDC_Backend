@@ -1,4 +1,5 @@
 import logging
+import math
 from typing import List, Tuple, Dict, Any
 import requests
 from django.conf import settings
@@ -13,13 +14,16 @@ class OSRMService:
     BASE_URL = getattr(settings, 'OSRM_BASE_URL', 'http://localhost:5000')
 
     @classmethod
-    def get_distance_matrix(cls, locations: List[Tuple[float, float]]) -> List[List[int]]:
+    def get_distance_matrix(cls, locations: List[Tuple[float, float]], profile: str = 'driving', exclude: str = '') -> List[List[int]]:
         if not locations:
             return []
         coordinates = ";".join([f"{lon},{lat}" for lat, lon in locations])
-        url = f"{cls.BASE_URL}/table/v1/driving/{coordinates}"
+        url = f"{cls.BASE_URL}/table/v1/{profile}/{coordinates}"
+        params = {"annotations": "distance"}
+        if exclude:
+            params['exclude'] = exclude
         try:
-            response = requests.get(url, params={"annotations": "distance"}, timeout=5)
+            response = requests.get(url, params=params, timeout=5)
             response.raise_for_status()
             data = response.json()
         except requests.RequestException as e:
@@ -31,12 +35,35 @@ class OSRMService:
         return cls._sanitize_matrix(data["distances"], len(locations))
 
     @classmethod
-    def get_route_geometry(cls, locations: List[Tuple[float, float]]) -> str:
+    def get_duration_matrix(cls, locations: List[Tuple[float, float]], profile: str = 'driving', exclude: str = '') -> List[List[int]]:
+        if not locations:
+            return []
+        coordinates = ";".join([f"{lon},{lat}" for lat, lon in locations])
+        url = f"{cls.BASE_URL}/table/v1/{profile}/{coordinates}"
+        params = {"annotations": "duration"}
+        if exclude:
+            params['exclude'] = exclude
+        try:
+            response = requests.get(url, params=params, timeout=5)
+            response.raise_for_status()
+            data = response.json()
+        except requests.RequestException as e:
+            logger.error(f"OSRM Connection Error: {e}")
+            raise ValidationError("فشل الاتصال بخدمة الخرائط.") from e
+
+        if "durations" not in data:
+            raise ValidationError("استجابة غير صالحة من خدمة الخرائط.")
+        return cls._sanitize_matrix(data["durations"], len(locations))
+
+    @classmethod
+    def get_route_geometry(cls, locations: List[Tuple[float, float]], profile: str = 'driving', exclude: str = '') -> str:
         if not locations:
             return ""
         coordinates = ";".join([f"{lon},{lat}" for lat, lon in locations])
-        url = f"{cls.BASE_URL}/route/v1/driving/{coordinates}"
+        url = f"{cls.BASE_URL}/route/v1/{profile}/{coordinates}"
         params = {"overview": "full", "geometries": "polyline", "steps": "false"}
+        if exclude:
+            params['exclude'] = exclude
         try:
             response = requests.get(url, params=params, timeout=5)
             if response.status_code == 200:
@@ -74,6 +101,7 @@ class VRPSolver:
         self.end_location = None
         self.locations = []
         self.distance_matrix = []
+        self.duration_matrix = []
 
         self.manager = None
         self.routing = None
@@ -125,15 +153,19 @@ class VRPSolver:
         self.locations = [self.start_location] + [(b.latitude, b.longitude) for b in self.bins] + [self.end_location]
 
     def _fetch_matrix(self):
-        self.distance_matrix = OSRMService.get_distance_matrix(self.locations)
+        profile = 'driving-traffic' if self.scenario.use_traffic_profile else 'driving'
+        exclude = self.scenario.avoid_streets
+        self.distance_matrix = OSRMService.get_distance_matrix(self.locations, profile=profile, exclude=exclude)
+        self.duration_matrix = OSRMService.get_duration_matrix(self.locations, profile=profile, exclude=exclude)
 
     def _setup_routing_model(self):
-        num_vehicles = 1
+        total_bin_demand = sum(b.capacity for b in self.bins)
+        num_vehicles = max(1, math.ceil(total_bin_demand / self.vehicle.capacity))
         start_idx = 0
         end_idx = len(self.locations) - 1
 
         self.manager = pywrapcp.RoutingIndexManager(
-            len(self.locations), num_vehicles, [start_idx], [end_idx]
+            len(self.locations), num_vehicles, [start_idx] * num_vehicles, [end_idx] * num_vehicles
         )
         self.routing = pywrapcp.RoutingModel(self.manager)
 
@@ -147,10 +179,42 @@ class VRPSolver:
 
         def demand_callback(from_index: int) -> int:
             node = self.manager.IndexToNode(from_index)
-            return 0 if node in (0, len(self.locations) - 1) else 1
+            if node in (0, len(self.locations) - 1):
+                return 0
+            return self.bins[node - 1].capacity
 
         demand_index = self.routing.RegisterUnaryTransitCallback(demand_callback)
         self.routing.AddDimension(demand_index, 0, self.vehicle.capacity, True, 'Capacity')
+
+        def time_callback(from_index: int, to_index: int) -> int:
+            from_node = self.manager.IndexToNode(from_index)
+            to_node = self.manager.IndexToNode(to_index)
+            service_time = 180 if from_node != 0 and from_node != len(self.locations) - 1 else 0
+            return int(self.duration_matrix[from_node][to_node]) + service_time
+
+        time_callback_index = self.routing.RegisterTransitCallback(time_callback)
+        self.routing.AddDimension(
+            time_callback_index,
+            3600,
+            86400,
+            False,
+            'Time'
+        )
+        time_dimension = self.routing.GetDimensionOrDie('Time')
+
+        for i, bin_obj in enumerate(self.bins):
+            if bin_obj.pickup_window_start and bin_obj.pickup_window_end:
+                node_idx = i + 1
+                index = self.manager.NodeToIndex(node_idx)
+                start_sec = bin_obj.pickup_window_start.hour * 3600 + bin_obj.pickup_window_start.minute * 60
+                end_sec = bin_obj.pickup_window_end.hour * 3600 + bin_obj.pickup_window_end.minute * 60
+                time_dimension.CumulVar(index).SetRange(start_sec, end_sec)
+
+        for i in range(num_vehicles):
+            self.routing.AddVariableMinimizedByFinalizer(
+                time_dimension.CumulVar(self.routing.Start(i)))
+            self.routing.AddVariableMinimizedByFinalizer(
+                time_dimension.CumulVar(self.routing.End(i)))
 
     def _solve(self):
         p = pywrapcp.DefaultRoutingSearchParameters()
@@ -163,27 +227,59 @@ class VRPSolver:
             raise ValidationError("لم يتم العثور على حل ممكن لهذه الخطة (قد تكون السعة غير كافية).")
 
     def _save_solution(self) -> Dict[str, Any]:
-        route_stops, route_coords = [], [self.start_location]
+        routes_data = []
         total_distance = 0
+        total_time_seconds = 0
+        total_bins = len(self.bins)
+        on_time_count = 0
 
-        index = self.routing.Start(0)
-        while not self.routing.IsEnd(index):
-            node = self.manager.IndexToNode(index)
-            if 1 <= node <= len(self.bins):
-                current_bin = self.bins[node - 1]
-                route_stops.append(current_bin.id)
-                route_coords.append((current_bin.latitude, current_bin.longitude))
+        time_dimension = self.routing.GetDimensionOrDie('Time')
 
-            prev = index
-            index = self.solution.Value(self.routing.NextVar(index))
-            total_distance += self.routing.GetArcCostForVehicle(prev, index, 0)
-
-        route_coords.append(self.end_location)
-
-        geometry = OSRMService.get_route_geometry(route_coords) if route_stops else ""
-        result_data = {
-            'total_distance': total_distance / 1000.0,
-            'routes': [{
+        for vehicle_id in range(self.manager.GetNumberOfVehicles()):
+            index = self.routing.Start(vehicle_id)
+            if self.routing.IsEnd(index):
+                continue
+                
+            route_distance = 0
+            route_stops = []
+            route_coords = [self.start_location]
+            has_bins = False
+            
+            while not self.routing.IsEnd(index):
+                node = self.manager.IndexToNode(index)
+                if 1 <= node <= len(self.bins):
+                    has_bins = True
+                    current_bin = self.bins[node - 1]
+                    route_stops.append(current_bin.id)
+                    route_coords.append((current_bin.latitude, current_bin.longitude))
+                    
+                    arrival_time = self.solution.Min(time_dimension.CumulVar(index))
+                    if current_bin.pickup_window_start and current_bin.pickup_window_end:
+                        start_sec = current_bin.pickup_window_start.hour * 3600 + current_bin.pickup_window_start.minute * 60
+                        end_sec = current_bin.pickup_window_end.hour * 3600 + current_bin.pickup_window_end.minute * 60
+                        if start_sec <= arrival_time <= end_sec:
+                            on_time_count += 1
+                    else:
+                        on_time_count += 1
+                
+                prev = index
+                index = self.solution.Value(self.routing.NextVar(index))
+                route_distance += self.routing.GetArcCostForVehicle(prev, index, 0)
+            
+            if not has_bins:
+                continue
+                
+            route_coords.append(self.end_location)
+            
+            profile = 'driving-traffic' if self.scenario.use_traffic_profile else 'driving'
+            exclude = self.scenario.avoid_streets
+            geometry = OSRMService.get_route_geometry(route_coords, profile=profile, exclude=exclude) if route_stops else ""
+            
+            total_distance += route_distance
+            route_time = self.solution.Min(time_dimension.CumulVar(self.routing.End(vehicle_id)))
+            total_time_seconds += route_time
+            
+            routes_data.append({
                 'vehicle': self.vehicle.name,
                 'vehicle_id': self.vehicle.id,
                 'start': self.start_location,
@@ -193,14 +289,41 @@ class VRPSolver:
                 },
                 'stops': route_stops,
                 'geometry': geometry,
-            }],
+                'distance': route_distance / 1000.0,
+                'time_seconds': route_time,
+            })
+
+        if not routes_data:
+            raise ValidationError("لم يتم إنشاء مسارات صالحة (قد تكون المشكلة في سعة المركبة).")
+
+        total_km = total_distance / 1000.0
+        FUEL_LITRES_PER_KM = 0.30
+        CO2_KG_PER_LITRE = 2.68
+        
+        fuel_litres = total_km * FUEL_LITRES_PER_KM
+        co2_kg = fuel_litres * CO2_KG_PER_LITRE
+        on_time_rate = (on_time_count / total_bins * 100) if total_bins > 0 else 100.0
+
+        result_data = {
+            'total_distance': total_km,
+            'routes': routes_data,
             'solver_mode': 'hybrid_tsp_vrp',
             'time_limit_seconds': 10,
+            'kpis': {
+                'total_km': round(total_km, 2),
+                'total_time_seconds': round(total_time_seconds, 2),
+                'fuel_litres': round(fuel_litres, 2),
+                'co2_kg': round(co2_kg, 2),
+                'on_time_pickups': on_time_count,
+                'on_time_rate': round(on_time_rate, 2),
+            }
         }
 
         solution_obj = RouteSolution.objects.create(
             scenario=self.scenario,
-            total_distance=result_data['total_distance'],
+            total_distance=total_km,
+            total_time=total_time_seconds,
+            co2_kg=co2_kg,
             data=result_data
         )
         result_data['solution_id'] = solution_obj.id

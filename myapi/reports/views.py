@@ -227,19 +227,22 @@ class AdminBinRequestViewSet(
         if bin_req.request_type == BinRequest.RequestType.NEW_BIN:
             new_capacity = request.data.get('capacity') or bin_req.requested_capacity or 1100
             new_name = request.data.get('name', f"New Bin {bin_req.report.id}")
+            new_address = request.data.get('address', '')
 
             from django.contrib.gis.measure import D
             from django.contrib.gis.geos import Point
-            from django.db.models import Avg
 
             # Use the spatial average of nearby reports as the bin location.
             nearby = Report.objects.filter(
                 municipality=bin_req.report.municipality,
                 location__distance_lte=(bin_req.report.location, D(m=10)),
             )
-            avg = nearby.aggregate(avg_lon=Avg('location__x'), avg_lat=Avg('location__y'))
-            if avg['avg_lon'] is not None and avg['avg_lat'] is not None:
-                location = Point(avg['avg_lon'], avg['avg_lat'], srid=4326)
+            
+            nearby_locations = [r.location for r in nearby if r.location]
+            if nearby_locations:
+                avg_lon = sum(loc.x for loc in nearby_locations) / len(nearby_locations)
+                avg_lat = sum(loc.y for loc in nearby_locations) / len(nearby_locations)
+                location = Point(avg_lon, avg_lat, srid=4326)
             else:
                 location = bin_req.report.location
 
@@ -249,6 +252,7 @@ class AdminBinRequestViewSet(
                 capacity=int(new_capacity),
                 municipality=bin_req.report.municipality,
                 created_by=user,
+                address=new_address,
             )
 
         elif bin_req.request_type == BinRequest.RequestType.RESIZE_BIN:

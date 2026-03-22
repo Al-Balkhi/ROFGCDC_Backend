@@ -82,6 +82,17 @@ class ReportSerializer(serializers.ModelSerializer):
 
         NO_CONTAINER_BONUS = 3
         issue_type = validated_data.get('issue_type') or Report.IssueType.CONTAINER_FULL
+
+        # IMPORTANT: Don't merge a "container full" submission into an existing
+        # "no container" report. Otherwise the location becomes permanently
+        # stuck as "no container" once such a report exists within the merge radius,
+        # which makes clients appear to always submit "no bin".
+        if (
+            existing_report
+            and existing_report.issue_type == Report.IssueType.NO_CONTAINER
+            and issue_type == Report.IssueType.CONTAINER_FULL
+        ):
+            existing_report = None
                 
         if existing_report:
             existing_report.urgency_score += 1

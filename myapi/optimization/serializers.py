@@ -80,6 +80,7 @@ class MunicipalitySerializer(DamascusLocationMixin, GeoPointSerializerMixin, ser
         fields = [
             'id',
             'name',
+            'address',
             'hq_latitude',
             'hq_longitude',
             'created_by',
@@ -118,7 +119,7 @@ class LandfillSerializer(DamascusLocationMixin, GeoPointSerializerMixin, seriali
 
     class Meta:
         model = Landfill
-        fields = ['id', 'name', 'latitude', 'longitude', 'municipalities', 'municipality_ids', 'created_by']
+        fields = ['id', 'name', 'address', 'latitude', 'longitude', 'municipalities', 'municipality_ids', 'created_by']
         read_only_fields = ['id', 'created_by']
     # create() and update() are handled by GeoPointSerializerMixin ✓
 
@@ -136,7 +137,8 @@ class BinSerializer(DamascusLocationMixin, GeoPointSerializerMixin, serializers.
 
     class Meta:
         model = Bin
-        fields = ['id', 'name', 'latitude', 'longitude', 'capacity', 'is_active',
+        fields = ['id', 'name', 'address', 'latitude', 'longitude', 'capacity', 'is_active',
+                  'pickup_window_start', 'pickup_window_end',
                   'municipality', 'municipality_id', 'created_at', 'updated_at', 'created_by']
         read_only_fields = ['id', 'created_at', 'updated_at', 'created_by']
     # create() and update() are handled by GeoPointSerializerMixin ✓
@@ -148,7 +150,7 @@ class BinAvailableSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Bin
-        fields = ['id', 'name', 'latitude', 'longitude', 'capacity']
+        fields = ['id', 'name', 'address', 'latitude', 'longitude', 'capacity', 'pickup_window_start', 'pickup_window_end']
         read_only_fields = ['id']
 
 
@@ -170,7 +172,7 @@ class VehicleSerializer(serializers.ModelSerializer):
 class RouteSolutionSlimSerializer(serializers.ModelSerializer):
     class Meta:
         model = RouteSolution
-        fields = ['id', 'total_distance', 'created_at']
+        fields = ['id', 'total_distance', 'total_time', 'co2_kg', 'created_at']
         read_only_fields = ['id', 'created_at']
 
 
@@ -200,6 +202,7 @@ class ScenarioSerializer(DamascusLocationMixin, GeoPointSerializerMixin, seriali
         fields = [
             'id', 'name', 'description', 'municipality', 'municipality_id',
             'start_latitude', 'start_longitude', 'collection_date', 'status',
+            'use_traffic_profile', 'avoid_streets',
             'vehicle', 'vehicle_id', 'end_landfill', 'end_landfill_id',
             'bins', 'bin_ids', 'created_by', 'solutions',
             'is_expired', 'created_at', 'updated_at',
@@ -301,6 +304,7 @@ class ScenarioTemplateSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'municipality', 'municipality_id', 'vehicle', 'vehicle_id',
             'end_landfill', 'end_landfill_id', 'bins', 'bin_ids', 'weekdays', 'is_active',
+            'use_traffic_profile', 'avoid_streets',
             'created_at', 'updated_at', 'created_by'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at', 'created_by']
@@ -342,5 +346,5 @@ class RouteSolutionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = RouteSolution
-        fields = ['id', 'scenario', 'scenario_id', 'created_at', 'total_distance', 'data']
+        fields = ['id', 'scenario', 'scenario_id', 'created_at', 'total_distance', 'total_time', 'co2_kg', 'data']
         read_only_fields = ['id', 'created_at']
